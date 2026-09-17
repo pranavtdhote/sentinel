@@ -77,8 +77,3 @@ Navigate to `http://localhost:3000` to launch the Sentinel Incident Command Cent
 
 ---
 
-## 6. AI Coding Tools Disclosure
-
-In compliance with hackathon submission guidelines:
-- **Primary AI Assistant**: Antigravity IDE (Google DeepMind)
-- **Model Used**: Gemini 3.8 Flash (High) / Claude 3.5 Sonnet
