@@ -2,9 +2,24 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getIncidentRepository } from '@/backend/repositories';
 import { CreateIncidentRequestSchema } from '@/lib/types/api';
 import { IncidentSeverity, IncidentStatus } from '@/lib/types/database';
+import { verifyAuthorization, AuthError } from '@/backend/domain/security/auth';
 
 export async function GET(req: NextRequest) {
   try {
+    // Validate authorization if header provided
+    try {
+      if (req.headers.get('authorization') || req.headers.get('x-sentinel-actor-role')) {
+        verifyAuthorization(req);
+      }
+    } catch (authErr: unknown) {
+      if (authErr instanceof AuthError) {
+        return NextResponse.json(
+          { success: false, error: { code: authErr.code, message: authErr.message } },
+          { status: authErr.statusCode }
+        );
+      }
+    }
+
     const repo = getIncidentRepository();
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status') as IncidentStatus | null;
@@ -31,6 +46,18 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    let authContext;
+    try {
+      authContext = verifyAuthorization(req);
+    } catch (authErr: unknown) {
+      if (authErr instanceof AuthError) {
+        return NextResponse.json(
+          { success: false, error: { code: authErr.code, message: authErr.message } },
+          { status: authErr.statusCode }
+        );
+      }
+    }
+
     const repo = getIncidentRepository();
     const body = await req.json();
     const validated = CreateIncidentRequestSchema.parse(body);
@@ -43,11 +70,13 @@ export async function POST(req: NextRequest) {
       title: validated.title,
       service: validated.service,
       environment: validated.environment,
-      severity: validated.severity,
-      status: 'DETECTED',
+      severity: validated.severity as IncidentSeverity,
+      status: 'NEW',
       commander: validated.commander,
       summary: validated.summary,
       category: validated.category || 'Database / Storage',
+      location: validated.location || 'us-east-1',
+      affectedUsers: validated.affectedUsers ?? null,
       confidenceScore: 0.88,
       mttdSeconds: 74,
     });
@@ -56,9 +85,9 @@ export async function POST(req: NextRequest) {
     await repo.addTimelineEvent({
       incidentId,
       eventId: `ev-${Date.now()}`,
-      title: 'Incident Ingestion & Telemetry Capture',
-      description: `Inbound alert received for service ${validated.service}. Severity flagged as ${validated.severity}.`,
-      actor: 'Sentinel Ingestion Gateway',
+      title: 'Incident Ingested & Captured',
+      description: `Inbound alert received for service ${validated.service}. Severity set as ${validated.severity}.`,
+      actor: authContext?.email || 'Sentinel Ingestion Gateway',
       category: 'ALERT',
       timestamp: now,
     });
@@ -69,8 +98,8 @@ export async function POST(req: NextRequest) {
       incidentId,
       eventType: 'INCIDENT_CREATED',
       actor: {
-        email: validated.commander,
-        role: 'RESPONDER',
+        email: authContext?.email || validated.commander,
+        role: authContext?.role || 'RESPONDER',
       },
       timestamp: now,
     });
@@ -86,7 +115,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Validation or creation failed';
     return NextResponse.json(
-      { success: false, error: { code: 'CREATION_FAILED', message } },
+      { success: false, error: { code: 'VALIDATION_FAILED', message } },
       { status: 400 }
     );
   }

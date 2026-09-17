@@ -1,5 +1,15 @@
-export type IncidentSeverity = 'SEV1' | 'SEV2' | 'SEV3' | 'SEV4';
-export type IncidentStatus = 'DETECTED' | 'INVESTIGATING' | 'MITIGATING' | 'RESOLVED' | 'CLOSED';
+export type IncidentSeverity = 'SEV1' | 'SEV2' | 'SEV3' | 'SEV4' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+export type IncidentStatus =
+  | 'NEW'
+  | 'ANALYZING'
+  | 'ACTION_REQUIRED'
+  | 'IN_PROGRESS'
+  | 'RESOLVED'
+  | 'CLOSED'
+  | 'CANCELLED'
+  | 'DETECTED'
+  | 'INVESTIGATING'
+  | 'MITIGATING';
 export type UserRole = 'VIEWER' | 'RESPONDER' | 'INCIDENT_COMMANDER' | 'ADMIN';
 
 export interface IncidentRecord {
@@ -7,16 +17,18 @@ export interface IncidentRecord {
   SK: 'METADATA';
   GSI1PK: `STATUS#${IncidentStatus}`;
   GSI1SK: `CREATED#${string}`;
-  GSI2PK: `SEV#${IncidentSeverity}`;
+  GSI2PK: `SEV#${string}`;
   GSI2SK: `CREATED#${string}`;
   incidentId: string;
   title: string;
   service: string;
-  environment: 'production' | 'staging';
+  environment: 'production' | 'staging' | 'development';
   severity: IncidentSeverity;
   status: IncidentStatus;
   commander: string;
   summary: string;
+  location?: string;
+  affectedUsers?: number | null;
   rootCauseHypothesis?: string;
   confidenceScore?: number;
   mttdSeconds?: number;
@@ -37,7 +49,7 @@ export interface TimelineEventRecord {
   title: string;
   description: string;
   actor: string;
-  category: 'ALERT' | 'TRIAGE' | 'APPROVAL' | 'REMEDIATION' | 'RECOVERY';
+  category: 'ALERT' | 'TRIAGE' | 'APPROVAL' | 'REMEDIATION' | 'RECOVERY' | 'INVESTIGATION';
   timestamp: string;
 }
 
@@ -87,7 +99,15 @@ export interface AuditRecord {
   SK: `AUDIT#${string}#${string}`;
   auditId: string;
   incidentId: string;
-  eventType: 'INCIDENT_CREATED' | 'TRIAGE_COMPLETED' | 'ACTION_APPROVED_AND_EXECUTED' | 'ACTION_REJECTED' | 'INCIDENT_RESOLVED';
+  eventType:
+    | 'INCIDENT_CREATED'
+    | 'TRIAGE_COMPLETED'
+    | 'ACTION_APPROVED_AND_EXECUTED'
+    | 'ACTION_REJECTED'
+    | 'INCIDENT_RESOLVED'
+    | 'STATUS_TRANSITION'
+    | 'INCIDENT_UPDATED'
+    | 'ANALYSIS_COMPLETED';
   actor: {
     email: string;
     role: UserRole;

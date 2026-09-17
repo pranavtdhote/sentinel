@@ -6,6 +6,8 @@ import {
 } from '@/lib/types/database';
 import {
   CreateIncidentRequest,
+  PatchIncidentRequest,
+  AnalyzeIncidentRequest,
   ApproveActionRequest,
   ResolveIncidentRequest,
   ApiResponse,
@@ -52,6 +54,39 @@ class ApiClient {
       });
       if (!res.data) throw new Error('Failed to create incident');
       return res.data;
+    },
+
+    patch: async (incidentId: string, payload: PatchIncidentRequest): Promise<IncidentRecord> => {
+      const res = await this.fetchJson<IncidentRecord>(`/api/incidents/${incidentId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      if (!res.data) throw new Error('Failed to patch incident');
+      return res.data;
+    },
+
+    analyze: async (incidentId: string, payload?: AnalyzeIncidentRequest): Promise<unknown> => {
+      const res = await this.fetchJson<unknown>(`/api/incidents/${incidentId}/analyze`, {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
+      });
+      return res.data;
+    },
+
+    approve: async (incidentId: string, payload?: unknown, callerRole: string = 'INCIDENT_COMMANDER'): Promise<unknown> => {
+      const res = await this.fetchJson<unknown>(`/api/incidents/${incidentId}/approve`, {
+        method: 'POST',
+        headers: {
+          'x-sentinel-actor-role': callerRole,
+        },
+        body: JSON.stringify(payload || {}),
+      });
+      return res.data;
+    },
+
+    getEvents: async (incidentId: string): Promise<{ timeline: unknown[]; auditLogs: unknown[] }> => {
+      const res = await this.fetchJson<{ timeline: unknown[]; auditLogs: unknown[] }>(`/api/incidents/${incidentId}/events`);
+      return res.data || { timeline: [], auditLogs: [] };
     },
 
     triage: async (incidentId: string, telemetrySnippet?: string): Promise<{ incident: IncidentRecord; triage: unknown; evidence: unknown[] }> => {

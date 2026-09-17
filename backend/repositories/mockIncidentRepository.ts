@@ -243,6 +243,52 @@ export class MockIncidentRepository implements IIncidentRepository {
     return updated;
   }
 
+  async patchIncident(
+    incidentId: string,
+    updates: Partial<IncidentRecord>,
+    expectedVersion: number
+  ): Promise<IncidentRecord> {
+    const item = store.incidents.get(incidentId);
+    if (!item) {
+      throw new Error(`Incident not found: ${incidentId}`);
+    }
+    if (item.version !== expectedVersion) {
+      throw new Error(`OptimisticLockException: Expected version ${expectedVersion} but got ${item.version}`);
+    }
+
+    const forbiddenKeys = new Set(['PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'version', 'createdAt', 'updatedAt', 'incidentId']);
+    const sanitizedUpdates: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined && !forbiddenKeys.has(key)) {
+        sanitizedUpdates[key] = value;
+      }
+    }
+
+    const updated: IncidentRecord = {
+      ...item,
+      ...sanitizedUpdates,
+      status: (updates.status || item.status) as IncidentStatus,
+      severity: (updates.severity || item.severity) as IncidentSeverity,
+      GSI1PK: updates.status ? `STATUS#${updates.status}` : item.GSI1PK,
+      GSI2PK: updates.severity ? `SEV#${updates.severity}` : item.GSI2PK,
+      version: item.version + 1,
+      updatedAt: new Date().toISOString(),
+    };
+
+    store.incidents.set(incidentId, updated);
+    return updated;
+  }
+
+  async getEvents(
+    incidentId: string
+  ): Promise<{ timeline: TimelineEventRecord[]; auditLogs: AuditRecord[] }> {
+    const timeline = [...(store.timeline.get(incidentId) || [])];
+    const auditLogs = [...(store.auditLogs.get(incidentId) || [])];
+    timeline.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    auditLogs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    return { timeline, auditLogs };
+  }
+
   async addTimelineEvent(event: Omit<TimelineEventRecord, 'PK' | 'SK'>): Promise<TimelineEventRecord> {
     const item: TimelineEventRecord = {
       ...event,

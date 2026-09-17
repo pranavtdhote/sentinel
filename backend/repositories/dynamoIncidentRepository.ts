@@ -300,6 +300,103 @@ export class DynamoIncidentRepository implements IIncidentRepository {
     return item;
   }
 
+  async patchIncident(
+    incidentId: string,
+    updates: Partial<IncidentRecord>,
+    expectedVersion: number
+  ): Promise<IncidentRecord> {
+    const now = new Date().toISOString();
+    const updateExpressions: string[] = ['#updatedAt = :now', '#version = #version + :inc'];
+    const exprAttrNames: Record<string, string> = {
+      '#updatedAt': 'updatedAt',
+      '#version': 'version',
+    };
+    const exprAttrValues: Record<string, unknown> = {
+      ':now': now,
+      ':inc': 1,
+      ':expectedVersion': expectedVersion,
+    };
+
+    const forbiddenKeys = new Set(['PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'version', 'createdAt', 'updatedAt', 'incidentId']);
+    let counter = 0;
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined && !forbiddenKeys.has(key)) {
+        const attrKey = `#f${counter}`;
+        const valKey = `:v${counter}`;
+        exprAttrNames[attrKey] = key;
+        exprAttrValues[valKey] = value;
+        updateExpressions.push(`${attrKey} = ${valKey}`);
+        counter++;
+      }
+    }
+
+    if (updates.status) {
+      updateExpressions.push('GSI1PK = :gsi1pk');
+      exprAttrValues[':gsi1pk'] = `STATUS#${updates.status}`;
+    }
+
+    if (updates.severity) {
+      updateExpressions.push('GSI2PK = :gsi2pk');
+      exprAttrValues[':gsi2pk'] = `SEV#${updates.severity}`;
+    }
+
+    try {
+      const result = await dynamoDocClient.send(
+        new UpdateCommand({
+          TableName: TABLE_NAME,
+          Key: {
+            PK: `INCIDENT#${incidentId}`,
+            SK: 'METADATA',
+          },
+          UpdateExpression: `SET ${updateExpressions.join(', ')}`,
+          ConditionExpression: 'attribute_exists(PK) AND #version = :expectedVersion',
+          ExpressionAttributeNames: exprAttrNames,
+          ExpressionAttributeValues: exprAttrValues,
+          ReturnValues: 'ALL_NEW',
+        })
+      );
+      return result.Attributes as IncidentRecord;
+    } catch (err: unknown) {
+      const errorObj = err as { name?: string };
+      if (errorObj?.name === 'ConditionalCheckFailedException') {
+        throw new Error(`OptimisticLockException: Stale version or incident not found for ID ${incidentId}`);
+      }
+      throw err;
+    }
+  }
+
+  async getEvents(
+    incidentId: string
+  ): Promise<{ timeline: TimelineEventRecord[]; auditLogs: AuditRecord[] }> {
+    const result = await dynamoDocClient.send(
+      new QueryCommand({
+        TableName: TABLE_NAME,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: {
+          ':pk': `INCIDENT#${incidentId}`,
+        },
+      })
+    );
+
+    const timeline: TimelineEventRecord[] = [];
+    const auditLogs: AuditRecord[] = [];
+
+    if (result.Items) {
+      for (const item of result.Items) {
+        if (item.SK.startsWith('EVENT#')) {
+          timeline.push(item as TimelineEventRecord);
+        } else if (item.SK.startsWith('AUDIT#')) {
+          auditLogs.push(item as AuditRecord);
+        }
+      }
+    }
+
+    timeline.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    auditLogs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+    return { timeline, auditLogs };
+  }
+
   async setResolution(incidentId: string, reportUrl: string, mttmSeconds: number): Promise<IncidentRecord> {
     const now = new Date().toISOString();
     const result = await dynamoDocClient.send(

@@ -2,12 +2,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getIncidentRepository } from '@/backend/repositories';
 import { BedrockOrchestrator } from '@/backend/ai/bedrockOrchestrator';
 import { ResolveIncidentRequestSchema } from '@/lib/types/api';
+import { validateStateTransition, InvalidStateTransitionError } from '@/backend/domain/stateMachine';
+import { verifyAuthorization, AuthError } from '@/backend/domain/security/auth';
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    let authContext;
+    try {
+      if (req.headers.get('authorization') || req.headers.get('x-sentinel-actor-role')) {
+        authContext = verifyAuthorization(req, ['INCIDENT_COMMANDER', 'ADMIN', 'RESPONDER']);
+      }
+    } catch (authErr: unknown) {
+      if (authErr instanceof AuthError) {
+        return NextResponse.json(
+          { success: false, error: { code: authErr.code, message: authErr.message } },
+          { status: authErr.statusCode }
+        );
+      }
+    }
+
     const { id } = await params;
     const repo = getIncidentRepository();
     const incident = await repo.getIncident(id);
@@ -18,6 +34,9 @@ export async function POST(
         { status: 404 }
       );
     }
+
+    // State transition validation
+    validateStateTransition(incident.status, 'RESOLVED');
 
     const body = await req.json().catch(() => ({}));
     const validated = ResolveIncidentRequestSchema.parse(body);
