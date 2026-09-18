@@ -6,13 +6,37 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
-import { Settings, Shield, Cpu, Database, HardDrive, CheckCircle2 } from 'lucide-react';
+import { Settings, Shield, Cpu, Database, HardDrive, CheckCircle2, RotateCcw } from 'lucide-react';
 
 export default function SettingsPage() {
   const [model, setModel] = useState<string>('anthropic.claude-3-5-sonnet-20241022-v2:0');
   const [region, setRegion] = useState<string>('us-east-1');
   const [enforceHitl, setEnforceHitl] = useState<boolean>(true);
+  const [resetting, setResetting] = useState<boolean>(false);
   const { addToast } = useToast();
+
+  const handleResetDemo = async () => {
+    setResetting(true);
+    try {
+      const res = await fetch('/api/demo/reset', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        addToast({
+          type: 'success',
+          title: 'Demo Environment Reset',
+          description: 'Incident store restored to pristine baseline state.',
+        });
+      }
+    } catch {
+      addToast({
+        type: 'error',
+        title: 'Reset Failed',
+        description: 'Failed to reset demo state.',
+      });
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const handleSave = () => {
     addToast({
@@ -122,6 +146,36 @@ export default function SettingsPage() {
                 </div>
               </div>
               <Badge variant="success">ENFORCED</Badge>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Hackathon Demo Controller */}
+        <Card className="border-amber-accent/40 bg-amber-light/20">
+          <CardHeader>
+            <div className="flex items-center space-x-2">
+              <RotateCcw className="w-4 h-4 text-amber-600" />
+              <CardTitle>Hackathon Demo Controller</CardTitle>
+            </div>
+            <CardDescription>
+              Reset Sentinel demo environment back to pristine baseline for 3-minute presentations
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 font-sans text-xs">
+            <p className="text-ink-secondary leading-relaxed">
+              Clears transient incident mutations, resets the timeline and audit logs, and restores baseline SEV-1 incident telemetry.
+            </p>
+            <div className="flex items-center space-x-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={resetting}
+                onClick={handleResetDemo}
+                className="font-mono-tech text-xs flex items-center space-x-1.5"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${resetting ? 'animate-spin' : ''}`} />
+                <span>{resetting ? 'Resetting Demo State...' : 'Reset Demo State to Baseline'}</span>
+              </Button>
             </div>
           </CardContent>
         </Card>

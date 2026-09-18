@@ -51,6 +51,24 @@ export class KnowledgeBaseService {
 
     const allCorpus: Evidence[] = [
       {
+        chunkId: 'ev-chunk-net-304',
+        documentTitle: 'SOP: Campus Edge Switch Trunk Flap Recovery (Lab 304 / VLAN 104)',
+        sourceUri: 's3://sentinel-runbooks-prod/network/lab304-switch-recovery.md',
+        sourceType: 'BEDROCK_KNOWLEDGE_BASE',
+        category: 'SOP',
+        snippet:
+          'If Core Switch SW-CORE-304 reports 802.1Q trunk port link down affecting Lab 304 (VLAN 104), verify PoE power injector status, toggle port Gi1/0/24 admin state, and failover to secondary trunk SW-CORE-305-B.',
+        relevanceScore: 0.974,
+        metadata: {
+          documentTitle: 'SOP: Campus Edge Switch Trunk Flap Recovery (Lab 304 / VLAN 104)',
+          sourceKey: 'network/lab304-switch-recovery.md',
+          category: 'SOP',
+          service: 'campus-network-core',
+          version: '1.2',
+        },
+        retrievedAt: new Date().toISOString(),
+      },
+      {
         chunkId: 'ev-chunk-302',
         documentTitle: 'SOP: Aurora PostgreSQL Connection Pool Recovery',
         sourceUri: 's3://sentinel-runbooks-prod/payments/aurora-connection-leak.md',

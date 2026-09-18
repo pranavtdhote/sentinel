@@ -422,4 +422,29 @@ export class DynamoIncidentRepository implements IIncidentRepository {
     );
     return result.Attributes as IncidentRecord;
   }
+
+  async resetDemo(): Promise<void> {
+    // DynamoDB reset: Reset demo incident status back to DETECTED if present
+    const now = new Date().toISOString();
+    try {
+      await dynamoDocClient.send(
+        new UpdateCommand({
+          TableName: TABLE_NAME,
+          Key: {
+            PK: 'INCIDENT#inc-2026-0917-01',
+            SK: 'METADATA',
+          },
+          UpdateExpression: 'SET #st = :st, GSI1PK = :gsi1pk, updatedAt = :now REMOVE postmortemUrl, mttmSeconds',
+          ExpressionAttributeNames: { '#st': 'status' },
+          ExpressionAttributeValues: {
+            ':st': 'DETECTED',
+            ':gsi1pk': 'STATUS#DETECTED',
+            ':now': now,
+          },
+        })
+      );
+    } catch {
+      // If table item not found, ignore
+    }
+  }
 }

@@ -24,4 +24,5 @@ export interface IIncidentRepository {
   setResolution(incidentId: string, reportUrl: string, mttmSeconds: number): Promise<IncidentRecord>;
   getEvents(incidentId: string): Promise<{ timeline: TimelineEventRecord[]; auditLogs: AuditRecord[] }>;
   isSandbox(): boolean;
+  resetDemo?(): Promise<void>;
 }

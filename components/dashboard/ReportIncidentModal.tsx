@@ -82,9 +82,24 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
               Report & Ingest Outage
             </h3>
           </div>
-          <button onClick={onClose} className="text-ink-tertiary hover:text-ink-primary text-xs">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => {
+                setTitle('Campus Lab 304 Switch Outage: 42 Workstations Offline');
+                setService('campus-network-core');
+                setSeverity('SEV1');
+                setCategory('Infrastructure / Network');
+                setSummary('Lab 304 has lost network connectivity. 42 students cannot access their systems. The issue started 8 minutes ago.');
+              }}
+              className="text-[10px] font-mono-tech px-2 py-0.5 rounded bg-amber-light border border-amber-accent text-ink-primary hover:bg-amber-accent/40 transition-colors"
+            >
+              ⚡ Load Hackathon Demo Incident
+            </button>
+            <button onClick={onClose} className="text-ink-tertiary hover:text-ink-primary text-xs">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 font-sans text-xs">

@@ -221,9 +221,23 @@ export default function IncidentsPage() {
         {isNewModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-canvas border border-surface-border rounded-sm max-w-lg w-full p-6 shadow-pleurat-1">
-              <h2 className="text-lg font-bold font-sans text-ink-primary mb-4">
-                Ingest Operational Incident
-              </h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold font-sans text-ink-primary">
+                  Ingest Operational Incident
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewTitle('Campus Lab 304 Switch Outage: 42 Workstations Offline');
+                    setNewService('campus-network-core');
+                    setNewSeverity('SEV1');
+                    setNewSummary('Lab 304 has lost network connectivity. 42 students cannot access their systems. The issue started 8 minutes ago.');
+                  }}
+                  className="text-[10px] font-mono-tech px-2 py-0.5 rounded bg-amber-light border border-amber-accent text-ink-primary hover:bg-amber-accent/40 transition-colors"
+                >
+                  ⚡ Load Demo Incident
+                </button>
+              </div>
               <form onSubmit={handleCreateIncident} className="space-y-4 font-sans text-xs">
                 <div>
                   <label className="block font-mono-tech text-[10px] text-ink-tertiary uppercase mb-1">

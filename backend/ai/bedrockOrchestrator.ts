@@ -21,7 +21,42 @@ export class BedrockOrchestrator {
    */
   async retrieveRunbookEvidence(incident: IncidentRecord, queryText: string): Promise<EvidenceRecord[]> {
     if (!isAwsConfigured()) {
-      // Deterministic RAG chunks matching demo scenario
+      const isLab304 =
+        incident.title.toLowerCase().includes('lab 304') ||
+        incident.summary.toLowerCase().includes('lab 304') ||
+        queryText.toLowerCase().includes('lab 304') ||
+        incident.service.toLowerCase().includes('network');
+
+      if (isLab304) {
+        return [
+          {
+            PK: `INCIDENT#${incident.incidentId}`,
+            SK: `EVIDENCE#ev-chunk-net-304`,
+            incidentId: incident.incidentId,
+            chunkId: 'ev-chunk-net-304',
+            sourceType: 'BEDROCK_KNOWLEDGE_BASE',
+            sourceUri: 's3://sentinel-runbooks-prod/network/lab304-switch-recovery.md',
+            documentTitle: 'SOP: Campus Edge Switch Trunk Flap Recovery (Lab 304 / VLAN 104)',
+            snippet: 'If Core Switch SW-CORE-304 reports 802.1Q trunk port link down affecting Lab 304 (VLAN 104), verify PoE power injector status, toggle port Gi1/0/24 admin state, and failover to secondary trunk SW-CORE-305-B.',
+            relevanceScore: 0.974,
+            retrievedAt: new Date().toISOString(),
+          },
+          {
+            PK: `INCIDENT#${incident.incidentId}`,
+            SK: `EVIDENCE#ev-chunk-net-712`,
+            incidentId: incident.incidentId,
+            chunkId: 'ev-chunk-net-712',
+            sourceType: 'CLOUDWATCH_LOGS',
+            sourceUri: 'log-group:/campus/network/sw-core-304',
+            documentTitle: 'CloudWatch Log Stream: switch-core-304:syslog',
+            snippet: '[CRITICAL] %LINK-3-UPDOWN: Interface GigabitEthernet1/0/24, changed state to down. Spanning tree topology change detected for VLAN 104 (Lab 304). 42 workstation MAC addresses aged out.',
+            relevanceScore: 0.938,
+            retrievedAt: new Date().toISOString(),
+          },
+        ];
+      }
+
+      // Default: Payment checkout scenario
       return [
         {
           PK: `INCIDENT#${incident.incidentId}`,
@@ -107,6 +142,22 @@ export class BedrockOrchestrator {
     telemetry?: string
   ): Promise<IncidentTriageOutput> {
     if (!isAwsConfigured()) {
+      const isLab304 =
+        incident.title.toLowerCase().includes('lab 304') ||
+        incident.summary.toLowerCase().includes('lab 304') ||
+        incident.service.toLowerCase().includes('network');
+
+      if (isLab304) {
+        return {
+          rootCauseHypothesis: 'Switch port Gi1/0/24 link down on SW-CORE-304 isolated VLAN 104 (Lab 304), dropping connectivity for 42 student workstations.',
+          confidenceScore: 0.96,
+          primaryImpact: '42 students in Lab 304 unable to access academic systems or cloud services for 8 minutes.',
+          citedEvidenceIds: ['ev-chunk-net-304', 'ev-chunk-net-712'],
+          recommendedStrategy: 'RESTART_SERVICE',
+          technicalSummary: 'Interface Gi1/0/24 on SW-CORE-304 experienced transceiver link drop. Immediate port cycle and Spanning Tree edge port fast-forward will restore VLAN 104 connectivity.',
+        };
+      }
+
       return {
         rootCauseHypothesis: 'Database connection pool exhaustion on Aurora PostgreSQL cluster caused by unindexed query introduced in commit 89f4b3c (v2.14.0).',
         confidenceScore: 0.94,
@@ -190,6 +241,49 @@ Output MUST be valid JSON conforming to the schema. Do not enclose in markdown t
     triage: IncidentTriageOutput
   ): Promise<ActionPlanOutput> {
     if (!isAwsConfigured()) {
+      const isLab304 =
+        incident.title.toLowerCase().includes('lab 304') ||
+        incident.summary.toLowerCase().includes('lab 304') ||
+        incident.service.toLowerCase().includes('network');
+
+      if (isLab304) {
+        return {
+          planSummary: 'Two-step network restoration: Query switch syslog insights on SW-CORE-304, then restart edge gateway service and re-initialize VLAN 104 trunk connection.',
+          overallRisk: 'MEDIUM',
+          estimatedRecoveryMinutes: 2,
+          actions: [
+            {
+              actionId: 'act-01',
+              order: 1,
+              toolName: 'query_cloudwatch_insights',
+              description: 'Execute CloudWatch Insights diagnostic query on SW-CORE-304 port Gi1/0/24 syslog streams.',
+              requiresApproval: false,
+              parameters: {
+                logGroup: '/campus/network/sw-core-304',
+                switchId: 'SW-CORE-304',
+                port: 'GigabitEthernet1/0/24',
+              },
+              blastRadiusRisk: 'LOW',
+              rollbackStrategy: 'Read-only diagnostic query.',
+            },
+            {
+              actionId: 'act-02',
+              order: 2,
+              toolName: 'restart_ecs_service',
+              description: 'Restart campus network gateway service and re-initialize trunk connection to VLAN 104.',
+              requiresApproval: true,
+              parameters: {
+                cluster: 'campus-network-core',
+                service: 'lab304-edge-gateway',
+                forceNewDeployment: true,
+              },
+              blastRadiusRisk: 'MEDIUM',
+              rollbackStrategy: 'Failover trunk traffic to secondary switch SW-CORE-305-B.',
+            },
+          ],
+        };
+      }
+
       return {
         planSummary: 'Two-step remediation: Revert payment-checkout-service to stable revision 48, then verify CloudWatch latency alarm recovers to OK.',
         overallRisk: 'MEDIUM',
@@ -266,6 +360,73 @@ Output MUST be valid JSON conforming to the schema. Do not enclose in markdown t
    * Synthesize postmortem retrospective for S3 export
    */
   async generatePostmortem(incident: IncidentRecord): Promise<PostmortemOutput> {
+    const isLab304 =
+      incident.title.toLowerCase().includes('lab 304') ||
+      incident.summary.toLowerCase().includes('lab 304') ||
+      incident.service.toLowerCase().includes('network');
+
+    if (isLab304) {
+      return {
+        title: `Incident Retrospective: ${incident.title}`,
+        executiveSummary: `On ${incident.createdAt}, Lab 304 experienced a network outage affecting 42 students. Sentinel autonomously identified port Gi1/0/24 link drop via Bedrock Knowledge Base runbook retrieval, prepared a human-in-the-loop port cycle action, and restored campus connectivity within 4 minutes.`,
+        mttdMinutes: 1.2,
+        mttmMinutes: 3.8,
+        rootCauseAnalysis: 'Interface GigabitEthernet1/0/24 on switch SW-CORE-304 dropped link due to Spanning Tree Protocol edge port re-negotiation, isolating VLAN 104 and disconnecting 42 lab workstations.',
+        timelineEntries: [
+          {
+            time: '00:08:00 prior',
+            description: '42 student workstations in Lab 304 lost network connectivity.',
+            actor: 'Campus Network Alarms',
+          },
+          {
+            time: '00:01:00 prior',
+            description: 'Sentinel autonomous Bedrock Knowledge Base RAG grounded root cause in runbook lab304-switch-recovery.md.',
+            actor: 'Amazon Bedrock (Claude 3.5 Sonnet)',
+          },
+          {
+            time: '00:00:30 prior',
+            description: 'Incident Commander cryptographically authorized port bounce and STP edge-forwarding.',
+            actor: incident.commander,
+          },
+          {
+            time: '00:00:05 prior',
+            description: 'Interface Gi1/0/24 bounced; Spanning Tree converged; 42 student workstations reconnected.',
+            actor: 'Sentinel Tool Runner',
+          },
+        ],
+        preventativeItems: [
+          {
+            ticketId: 'NET-204',
+            action: 'Configure persistent STP PortFast and BPDU Guard on all access switches in Building C.',
+            owner: 'Campus Network Team',
+            priority: 'P0',
+          },
+          {
+            ticketId: 'NET-309',
+            action: 'Provision redundant trunk link to secondary switch SW-CORE-305-B.',
+            owner: 'Infrastructure SRE',
+            priority: 'P1',
+          },
+        ],
+        markdownReport: `# Incident Retrospective: ${incident.title}
+
+## Overview
+- **Incident ID**: ${incident.incidentId}
+- **Service**: ${incident.service}
+- **Severity**: ${incident.severity}
+- **Affected Users**: 42 students in Lab 304
+- **Mean Time to Detect (MTTD)**: 72 seconds
+- **Mean Time to Mitigate (MTTM)**: 228 seconds
+
+## Executive Summary
+Lab 304 lost network connectivity affecting 42 student systems. Sentinel correlated network syslog events with Bedrock Knowledge Base runbooks, isolated the flapping switch port Gi1/0/24, and prepared a safe port bounce. The Incident Commander reviewed and approved the action, restoring 100% connectivity.
+
+## Root Cause
+Spanning tree topology change on SW-CORE-304 caused edge port Gi1/0/24 to flap, isolating VLAN 104.
+`,
+      };
+    }
+
     return {
       title: `Incident Retrospective: ${incident.title}`,
       executiveSummary: `On ${incident.createdAt}, the ${incident.service} experienced a SEV-1 outage due to database connection pool exhaustion. Sentinel autonomously identified the root cause via Bedrock Knowledge Bases and facilitated an approved ECS task definition rollback, restoring healthy traffic in under 5 minutes.`,

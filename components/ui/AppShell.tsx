@@ -14,6 +14,7 @@ import {
   X,
   Shield,
   ExternalLink,
+  RotateCcw,
 } from 'lucide-react';
 import { ToastProvider } from './toast';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -26,6 +27,19 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const pathname = usePathname();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [isSandbox, setIsSandbox] = useState<boolean>(true);
+  const [isResetting, setIsResetting] = useState<boolean>(false);
+
+  const handleResetDemo = async () => {
+    setIsResetting(true);
+    try {
+      await fetch('/api/demo/reset', { method: 'POST' });
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to reset demo:', err);
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   useEffect(() => {
     fetch('/api/health')
@@ -79,6 +93,17 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
 
             {/* Status & User Profile */}
             <div className="flex items-center space-x-3">
+              <button
+                type="button"
+                onClick={handleResetDemo}
+                disabled={isResetting}
+                className="hidden sm:flex items-center space-x-1 px-2 py-0.5 rounded border border-surface-border bg-canvas hover:bg-surface-subtle text-[10px] font-mono-tech text-ink-secondary hover:text-ink-primary transition-colors cursor-pointer"
+                title="Reset demo incidents and timeline to clean baseline"
+              >
+                <RotateCcw className={`w-3 h-3 ${isResetting ? 'animate-spin' : ''}`} />
+                <span>{isResetting ? 'RESETTING...' : 'RESET DEMO'}</span>
+              </button>
+
               {isSandbox ? (
                 <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded bg-amber-light border border-amber-accent/50 text-ink-primary text-[10px] font-mono-tech">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-accent animate-ping" />

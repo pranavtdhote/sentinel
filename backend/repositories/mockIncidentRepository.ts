@@ -22,6 +22,15 @@ class MockStore {
     this.seedDefaultDemoData();
   }
 
+  resetDemoData() {
+    this.incidents.clear();
+    this.timeline.clear();
+    this.evidence.clear();
+    this.actionPlans.clear();
+    this.auditLogs.clear();
+    this.seedDefaultDemoData();
+  }
+
   seedDefaultDemoData() {
     const defaultId = 'inc-2026-0917-01';
     const now = new Date().toISOString();
@@ -379,5 +388,9 @@ export class MockIncidentRepository implements IIncidentRepository {
     };
     store.incidents.set(incidentId, updated);
     return updated;
+  }
+
+  async resetDemo(): Promise<void> {
+    store.resetDemoData();
   }
 }
