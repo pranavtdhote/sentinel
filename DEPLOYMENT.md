@@ -1,7 +1,10 @@
 # Sentinel — Production Deployment Guide
 
-> **Target Architecture**: AWS Fargate / ECS (or AWS Amplify Hosting) with Amazon DynamoDB, Amazon Bedrock, OpenSearch Serverless, Amazon EventBridge, Amazon SNS, and Amazon S3.  
-> **Security Mandate**: Never store, commit, or print secrets or AWS credentials in plaintext. Use AWS Secrets Manager, SSM Parameter Store, and IAM Task Roles.
+> **Target Architecture**: AWS Amplify Hosting (SSR Web Compute) & AWS ECS Fargate with Amazon DynamoDB, Amazon Bedrock, OpenSearch Serverless, Amazon EventBridge, Amazon SNS, and Amazon S3.  
+> **Security Mandate**: Never store, commit, or print secrets or AWS credentials in plaintext. Use AWS Secrets Manager, SSM Parameter Store, and IAM Task Roles.  
+>  
+> 🌐 **Live AWS Deployment**: [https://main.d3puckfek6iecn.amplifyapp.com](https://main.d3puckfek6iecn.amplifyapp.com)  
+> 🌐 **High-Availability Edge Endpoint (CloudFront)**: [https://d1p3wltem4w12q.cloudfront.net](https://d1p3wltem4w12q.cloudfront.net)
 
 ---
 

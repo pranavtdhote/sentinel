@@ -1,11 +1,15 @@
 # SENTINEL: Autonomous Incident Intelligence & Human-in-the-Loop Cloud Remediation Platform
 
 > **AWS Generative AI Hackathon Submission**  
-> *Transforming critical cloud outages into evidence-grounded, human-approved autonomous response workflows powered by Amazon Bedrock, DynamoDB, OpenSearch Serverless, EventBridge, SNS, and S3.*
+> *Transforming critical cloud outages into evidence-grounded, human-approved autonomous response workflows powered by Amazon Bedrock, DynamoDB, OpenSearch Serverless, EventBridge, SNS, and S3.*  
+>  
+> 🌐 **Live AWS Amplify Deployment**: [https://main.d3puckfek6iecn.amplifyapp.com](https://main.d3puckfek6iecn.amplifyapp.com)  
+> 🔑 **Operator Access (Cognito)**: `admin@sentinel.ai` / `Sentinel2026!` (Admin) • `commander@sentinel.internal` / `Sentinel2026!` (Commander)
 
 [![Next.js 15](https://img.shields.io/badge/Next.js-15.1.7-black)](https://nextjs.org/)
 [![TypeScript 5](https://img.shields.io/badge/TypeScript-5.7-blue)](https://www.typescriptlang.org/)
 [![AWS SDK v3](https://img.shields.io/badge/AWS_SDK-v3-orange)](https://aws.amazon.com/sdk-for-javascript/)
+[![Live Demo](https://img.shields.io/badge/AWS_Amplify-Live_Demo-7928CA?logo=awsamplify)](https://main.d3puckfek6iecn.amplifyapp.com)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Tests Passing](https://img.shields.io/badge/Tests-88%2B%20Passing-success)](./tests/runAllTests.ts)
 
