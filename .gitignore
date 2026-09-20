@@ -39,3 +39,9 @@ Thumbs.db
 # Deployment artifacts
 .amplify-hosting/
 *.zip
+
+# Agent & IDE configurations
+.agents/
+.cursor/
+AGENTS.md
+
