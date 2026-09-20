@@ -105,9 +105,11 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
             isSandbox={isSandbox}
           />
 
-          {/* Page Content Pane wrapped in ErrorBoundary */}
-          <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto min-w-0">
-            <ErrorBoundary>{children}</ErrorBoundary>
+          {/* Page Content Pane wrapped in ErrorBoundary with smooth scroll and route transitions */}
+          <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto min-w-0 scroll-smooth">
+            <div key={pathname} className="animate-page-enter">
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </div>
           </main>
         </div>
 
