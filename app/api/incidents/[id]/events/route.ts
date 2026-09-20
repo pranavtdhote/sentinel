@@ -1,22 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getIncidentRepository } from '@/backend/repositories';
-import { verifyAuthorization, AuthError } from '@/backend/domain/security/auth';
+import { verifyAuthorizationAsync, AuthError } from '@/backend/domain/security/auth';
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    if (req.headers.get('authorization') || req.headers.get('x-sentinel-actor-role')) {
-      try {
-        verifyAuthorization(req);
-      } catch (authErr: unknown) {
-        if (authErr instanceof AuthError) {
-          return NextResponse.json(
-            { success: false, error: { code: authErr.code, message: authErr.message } },
-            { status: authErr.statusCode }
-          );
-        }
+    try {
+      await verifyAuthorizationAsync(req);
+    } catch (authErr: unknown) {
+      if (authErr instanceof AuthError) {
+        return NextResponse.json(
+          { success: false, error: { code: authErr.code, message: authErr.message } },
+          { status: authErr.statusCode }
+        );
       }
     }
 

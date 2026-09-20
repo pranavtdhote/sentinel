@@ -319,7 +319,14 @@ export class MockIncidentRepository implements IIncidentRepository {
     if (chunks.length > 0) {
       const incidentId = chunks[0].incidentId;
       const current = store.evidence.get(incidentId) || [];
-      store.evidence.set(incidentId, [...current, ...items]);
+      const evidenceMap = new Map<string, EvidenceRecord>();
+      for (const item of current) {
+        evidenceMap.set(item.chunkId, item);
+      }
+      for (const item of items) {
+        evidenceMap.set(item.chunkId, item);
+      }
+      store.evidence.set(incidentId, Array.from(evidenceMap.values()));
     }
     return items;
   }

@@ -2,12 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getIncidentRepository } from '@/backend/repositories';
 import { BedrockOrchestrator } from '@/backend/ai/bedrockOrchestrator';
 import { TriageIncidentRequestSchema } from '@/lib/types/api';
+import { verifyAuthorizationAsync, AuthError } from '@/backend/domain/security/auth';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    let authContext;
+    try {
+      authContext = await verifyAuthorizationAsync(req, ['INCIDENT_COMMANDER', 'ADMIN', 'RESPONDER']);
+    } catch (authErr: unknown) {
+      if (authErr instanceof AuthError) {
+        return NextResponse.json(
+          { success: false, error: { code: authErr.code, message: authErr.message } },
+          { status: authErr.statusCode }
+        );
+      }
+    }
+
     const { id } = await params;
     const repo = getIncidentRepository();
     const incident = await repo.getIncident(id);
@@ -50,7 +65,7 @@ export async function POST(
       eventId: `ev-triage-${Date.now()}`,
       title: 'Bedrock Autonomous Triage & Grounding Completed',
       description: `Amazon Bedrock formulated hypothesis with ${Math.round(triage.confidenceScore * 100)}% confidence grounded in ${evidence.length} runbook citations.`,
-      actor: 'Amazon Bedrock (Claude 3.5 Sonnet)',
+      actor: `Amazon Bedrock (${process.env.BEDROCK_MODEL_ID || 'amazon.nova-pro-v1:0'})`,
       category: 'TRIAGE',
       timestamp: now,
     });

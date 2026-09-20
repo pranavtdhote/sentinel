@@ -5,11 +5,12 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 import { IncidentSeverity } from '@/lib/types/database';
 import { AlertTriangle, Plus, X } from 'lucide-react';
+import { safeFetchJson } from '@/lib/api/safeFetch';
 
 interface ReportIncidentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onIncidentCreated: () => void;
+  onIncidentCreated: (newIncidentId?: string) => void;
 }
 
 export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
@@ -31,9 +32,13 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch('/api/incidents', {
+      const res = await safeFetchJson<{ success: boolean; data: any; error?: { message: string } }>('/api/incidents', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer commander-token',
+          'x-sentinel-actor-role': 'INCIDENT_COMMANDER',
+        },
         body: JSON.stringify({
           title,
           service,
@@ -44,24 +49,23 @@ export const ReportIncidentModal: React.FC<ReportIncidentModalProps> = ({
         }),
       });
 
-      const data = await res.json();
-      if (data.success) {
+      if (res.ok && res.data?.success) {
         addToast({
           type: 'success',
           title: 'Incident Ingested',
-          description: `Incident ${data.data.incidentId} created with severity ${severity}.`,
+          description: `Incident ${res.data.data.incidentId} created with severity ${severity}.`,
         });
-        onIncidentCreated();
+        onIncidentCreated(res.data.data?.incidentId);
         onClose();
       } else {
         addToast({
           type: 'error',
           title: 'Ingestion Error',
-          description: data.error?.message || 'Failed to ingest incident.',
+          description: res.data?.error?.message || res.error || 'Failed to ingest incident.',
         });
       }
     } catch (err) {
-      console.error('Incident report error:', err);
+      console.warn('Incident report error:', err);
       addToast({
         type: 'error',
         title: 'Network Error',

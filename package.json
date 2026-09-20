@@ -12,14 +12,18 @@
     "test": "tsx tests/runAllTests.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-agent": "^3.1136.0",
     "@aws-sdk/client-bedrock-agent-runtime": "^3.750.0",
     "@aws-sdk/client-bedrock-runtime": "^3.750.0",
     "@aws-sdk/client-cloudwatch": "^3.750.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.1136.0",
     "@aws-sdk/client-dynamodb": "^3.750.0",
     "@aws-sdk/client-eventbridge": "^3.750.0",
     "@aws-sdk/client-s3": "^3.750.0",
     "@aws-sdk/client-sns": "^3.750.0",
     "@aws-sdk/lib-dynamodb": "^3.750.0",
+    "@aws-sdk/s3-request-presigner": "^3.1136.0",
+    "aws-jwt-verify": "^5.2.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.4.7",

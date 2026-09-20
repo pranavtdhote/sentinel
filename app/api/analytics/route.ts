@@ -1,6 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getIncidentRepository } from '@/backend/repositories';
 import { SlaMonitor } from '@/backend/events/slaMonitor';
+import { verifyAuthorizationAsync, AuthError } from '@/backend/domain/security/auth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export interface IncidentAnalyticsData {
   totalIncidents: number;
@@ -30,8 +34,19 @@ export interface IncidentAnalyticsData {
   }[];
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    try {
+      await verifyAuthorizationAsync(req);
+    } catch (authErr: unknown) {
+      if (authErr instanceof AuthError) {
+        return NextResponse.json(
+          { success: false, error: { code: authErr.code, message: authErr.message } },
+          { status: authErr.statusCode }
+        );
+      }
+    }
+
     const repo = getIncidentRepository();
     const incidents = await repo.listIncidents({ limit: 100 });
 

@@ -18,6 +18,8 @@ import {
   Download,
 } from 'lucide-react';
 import { FullIncidentBundle, EvidenceRecord, ActionItem } from '@/lib/types/database';
+import { safeFetchJson } from '@/lib/api/safeFetch';
+import { PostmortemReportViewer } from './PostmortemReportViewer';
 
 interface InteractiveWorkbenchProps {
   onRefreshAnalytics?: () => void;
@@ -43,24 +45,35 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
 
   const activeId = selectedIncidentId || 'inc-2026-0917-01';
 
+  // Deduplicate evidence records by chunkId / SK to guarantee unique keys and clean citations
+  const uniqueEvidence = React.useMemo(() => {
+    if (!bundle?.evidence || !Array.isArray(bundle.evidence)) return [];
+    const seen = new Set<string>();
+    return bundle.evidence.filter((chunk) => {
+      const id = chunk.chunkId || chunk.SK;
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [bundle?.evidence]);
+
   // Fetch incident data
-  const fetchIncidentBundle = React.useCallback(async (idToFetch: string = activeId) => {
+  const fetchIncidentBundle = React.useCallback(async (idToFetch: string = activeId, silent: boolean = false) => {
     try {
-      setLoading(true);
-      const res = await fetch(`/api/incidents/${idToFetch}`);
-      const json = await res.json();
-      if (json.success && json.data) {
-        setBundle(json.data);
-        if (json.data.incident.status === 'RESOLVED') setActiveStep(5);
-        else if (json.data.incident.status === 'MITIGATING') setActiveStep(4);
-        else if (json.data.activePlan) setActiveStep(3);
-        else if (json.data.incident.status === 'INVESTIGATING') setActiveStep(2);
+      if (!silent) setLoading(true);
+      const res = await safeFetchJson<any>(`/api/incidents/${idToFetch}`);
+      if (res.ok && res.data?.success && res.data?.data) {
+        setBundle(res.data.data);
+        if (res.data.data.incident.status === 'RESOLVED') setActiveStep(5);
+        else if (res.data.data.incident.status === 'MITIGATING') setActiveStep(4);
+        else if (res.data.data.activePlan) setActiveStep(3);
+        else if (res.data.data.incident.status === 'INVESTIGATING') setActiveStep(2);
         else setActiveStep(1);
       }
     } catch (err) {
-      console.error('Failed to fetch incident bundle:', err);
+      console.warn('Failed to fetch incident bundle:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [activeId]);
 
@@ -73,20 +86,21 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
     if (!bundle) return;
     setTriageLoading(true);
     try {
-      const res = await fetch(`/api/incidents/${bundle.incident.incidentId}/triage`, {
+      const res = await safeFetchJson<any>(`/api/incidents/${bundle.incident.incidentId}/triage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          telemetrySnippet: '[ERROR] ConnectionPoolTimeoutException: Timeout waiting for connection from pool of 500 connections on aurora-pg-prod.c4z.',
+          telemetrySnippet: bundle.incident.summary || '[ERROR] Service latency spike and connection saturation',
         }),
       });
-      const data = await res.json();
-      if (data.success) {
-        await fetchIncidentBundle();
+      if (res.ok && res.data?.success) {
+        await fetchIncidentBundle(bundle.incident.incidentId, true);
         setActiveStep(2);
+      } else if (res.error) {
+        console.warn('Triage response:', res.error);
       }
     } catch (err) {
-      console.error('Triage failed:', err);
+      console.warn('Triage failed:', err);
     } finally {
       setTriageLoading(false);
     }
@@ -97,16 +111,34 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
     if (!bundle) return;
     setPlanLoading(true);
     try {
-      const res = await fetch(`/api/incidents/${bundle.incident.incidentId}/action-plans`, {
+      // If root cause hypothesis is missing, run Bedrock triage first to ground runbook evidence
+      if (!bundle.incident.rootCauseHypothesis) {
+        try {
+          await safeFetchJson<any>(`/api/incidents/${bundle.incident.incidentId}/triage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              telemetrySnippet: bundle.incident.summary || 'Operational incident remediation request',
+            }),
+          });
+        } catch (triageErr) {
+          console.warn('Pre-plan triage notice:', triageErr);
+        }
+      }
+
+      const res = await safeFetchJson<any>(`/api/incidents/${bundle.incident.incidentId}/action-plans`, {
         method: 'POST',
       });
-      const data = await res.json();
-      if (data.success) {
-        await fetchIncidentBundle();
+      if (res.ok && res.data?.success) {
+        await fetchIncidentBundle(bundle.incident.incidentId, true);
         setActiveStep(3);
+      } else if (res.error) {
+        console.warn('Action plan response:', res.error);
+        alert(`Failed to generate action plan: ${res.data?.error?.message || res.error}`);
       }
     } catch (err) {
-      console.error('Action plan generation failed:', err);
+      console.warn('Action plan generation failed:', err);
+      alert('Action plan generation failed. Please verify AWS connectivity.');
     } finally {
       setPlanLoading(false);
     }
@@ -123,7 +155,7 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('')}`;
 
-      const res = await fetch(`/api/incidents/${bundle.incident.incidentId}/approve-action`, {
+      const res = await safeFetchJson<any>(`/api/incidents/${bundle.incident.incidentId}/approve-action`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -140,17 +172,16 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
         }),
       });
 
-      const data = await res.json();
-      if (data.success) {
-        setActionResult(data.data.executionResult);
+      if (res.ok && res.data?.success) {
+        setActionResult(res.data.data.executionResult);
         setIsApprovalModalOpen(false);
-        await fetchIncidentBundle();
+        await fetchIncidentBundle(bundle.incident.incidentId, true);
         setActiveStep(4);
       } else {
-        alert(`Approval rejected: ${data.error?.message}`);
+        alert(`Approval rejected: ${res.data?.error?.message || res.error}`);
       }
     } catch (err) {
-      console.error('Approval failed:', err);
+      console.warn('Approval failed:', err);
     } finally {
       setApprovalLoading(false);
     }
@@ -161,7 +192,7 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
     if (!bundle) return;
     setResolveLoading(true);
     try {
-      const res = await fetch(`/api/incidents/${bundle.incident.incidentId}/resolve`, {
+      const res = await safeFetchJson<any>(`/api/incidents/${bundle.incident.incidentId}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -169,16 +200,39 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
           triggerPostmortemGeneration: true,
         }),
       });
-      const data = await res.json();
-      if (data.success) {
-        setPostmortemData(data.data.postmortem);
+      if (res.ok && res.data?.success) {
+        setPostmortemData(res.data.data.postmortem);
         setIsPostmortemModalOpen(true);
-        await fetchIncidentBundle();
+        await fetchIncidentBundle(bundle.incident.incidentId, true);
         setActiveStep(5);
         if (onRefreshAnalytics) onRefreshAnalytics();
       }
     } catch (err) {
-      console.error('Resolution failed:', err);
+      console.warn('Resolution failed:', err);
+    } finally {
+      setResolveLoading(false);
+    }
+  };
+
+  const handleViewPostmortem = async () => {
+    if (!bundle) return;
+    if (postmortemData?.markdown) {
+      setIsPostmortemModalOpen(true);
+      return;
+    }
+    setResolveLoading(true);
+    try {
+      const res = await safeFetchJson<any>(`/api/incidents/${bundle.incident.incidentId}/postmortem`);
+      if (res.ok && res.data?.success && res.data?.data) {
+        setPostmortemData(res.data.data);
+        setIsPostmortemModalOpen(true);
+      } else if (bundle.incident.postmortemUrl) {
+        window.open(bundle.incident.postmortemUrl, '_blank');
+      }
+    } catch {
+      if (bundle.incident.postmortemUrl) {
+        window.open(bundle.incident.postmortemUrl, '_blank');
+      }
     } finally {
       setResolveLoading(false);
     }
@@ -268,7 +322,7 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
               <div className="flex items-center space-x-2">
                 <FileText className="w-4 h-4 text-amber-600" />
                 <span className="font-mono-tech font-bold text-xs text-ink-primary uppercase tracking-wider">
-                  Bedrock Knowledge Base Citations ({evidence.length})
+                  Bedrock Knowledge Base Citations ({uniqueEvidence.length})
                 </span>
               </div>
               <span className="text-[10px] font-mono-tech text-ink-tertiary">
@@ -276,15 +330,15 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
               </span>
             </div>
 
-            {evidence.length === 0 ? (
+            {uniqueEvidence.length === 0 ? (
               <div className="p-6 text-center text-xs font-mono-tech text-ink-tertiary border border-dashed border-surface-border rounded-xs">
                 No citations retrieved yet. Trigger Bedrock Triage to query Knowledge Base.
               </div>
             ) : (
               <div className="space-y-3">
-                {evidence.map((chunk) => (
+                {uniqueEvidence.map((chunk, idx) => (
                   <div
-                    key={chunk.chunkId}
+                    key={`${chunk.chunkId || chunk.SK || 'ev-chunk'}-${idx}`}
                     onClick={() => setSelectedEvidence(chunk)}
                     className="p-3 bg-surface-strong/60 hover:bg-surface-strong border border-surface-border rounded-xs cursor-pointer transition-editorial group"
                   >
@@ -324,7 +378,7 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
 
             <div className="space-y-4">
               {timeline.map((event, idx) => (
-                <div key={event.eventId || idx} className="flex items-start space-x-3 text-xs">
+                <div key={`${event.eventId || 'evt'}-${idx}`} className="flex items-start space-x-3 text-xs">
                   <div className="w-2 h-2 rounded-full bg-amber-accent mt-1.5 shrink-0" />
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
@@ -446,9 +500,9 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
                     </div>
 
                     {/* Proposed Actions List */}
-                    {activePlan.actions.map((act) => (
+                    {activePlan.actions.map((act, idx) => (
                       <div
-                        key={act.actionId}
+                        key={`${act.actionId || 'act'}-${idx}`}
                         className="p-3 bg-canvas border border-surface-border rounded-xs flex items-center justify-between"
                       >
                         <div>
@@ -478,12 +532,16 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
                 {!activePlan && (
                   <button
                     onClick={handleGenerateActionPlan}
-                    disabled={planLoading || !incident.rootCauseHypothesis}
-                    className="w-full py-2 px-3 bg-surface-strong hover:bg-amber-light disabled:opacity-50 text-ink-primary text-xs font-semibold rounded-xs border border-surface-border transition-editorial flex items-center justify-center space-x-2"
+                    disabled={planLoading}
+                    className="w-full py-2.5 px-3 bg-amber-accent hover:bg-amber-hover disabled:opacity-50 text-ink-primary text-xs font-bold rounded-xs border border-surface-border shadow-pleurat-button transition-editorial flex items-center justify-center space-x-2 cursor-pointer disabled:cursor-not-allowed"
                   >
-                    <Layers className="w-3.5 h-3.5" />
+                    <Layers className={`w-3.5 h-3.5 ${planLoading ? 'animate-spin' : ''}`} />
                     <span>
-                      {planLoading ? 'Synthesizing Plan...' : 'Generate Mitigation Action Plan'}
+                      {planLoading
+                        ? incident.rootCauseHypothesis
+                          ? 'Synthesizing Mitigation Action Plan...'
+                          : 'Triaging & Formulating Action Plan...'
+                        : 'Generate Mitigation Action Plan'}
                     </span>
                   </button>
                 )}
@@ -541,16 +599,16 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
                 </p>
 
                 <button
-                  onClick={handleResolveIncident}
-                  disabled={resolveLoading || incident.status === 'RESOLVED'}
+                  onClick={incident.status === 'RESOLVED' ? handleViewPostmortem : handleResolveIncident}
+                  disabled={resolveLoading}
                   className="w-full py-2 px-3 bg-ink-primary hover:bg-black disabled:opacity-50 text-canvas text-xs font-semibold rounded-xs transition-editorial flex items-center justify-center space-x-2"
                 >
                   <FileText className="w-3.5 h-3.5 text-amber-accent" />
                   <span>
                     {resolveLoading
-                      ? 'Compiling Postmortem...'
+                      ? 'Loading Postmortem...'
                       : incident.status === 'RESOLVED'
-                      ? 'Incident Resolved (Postmortem Ready)'
+                      ? 'View S3 Postmortem Report ↗'
                       : 'Mark Incident Resolved & Generate Postmortem'}
                   </span>
                 </button>
@@ -694,87 +752,16 @@ export const InteractiveWorkbench: React.FC<InteractiveWorkbenchProps> = ({
       </AnimatePresence>
 
       {/* S3 Postmortem Modal */}
-      <AnimatePresence>
-        {isPostmortemModalOpen && postmortemData && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-canvas border border-surface-border rounded-sm max-w-3xl w-full p-6 shadow-pleurat-1 max-h-[85vh] overflow-y-auto"
-            >
-              <div className="flex items-center justify-between border-b border-surface-border pb-3 mb-4">
-                <div className="flex items-center space-x-2">
-                  <FileText className="w-4 h-4 text-success" />
-                  <span className="font-mono-tech font-bold text-xs text-ink-primary">
-                    GENERATED POSTMORTEM REPORT (AMAZON S3)
-                  </span>
-                </div>
-                <button
-                  onClick={() => setIsPostmortemModalOpen(false)}
-                  className="text-ink-tertiary hover:text-ink-primary font-mono-tech text-xs"
-                >
-                  ✕ CLOSE
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div className="p-4 bg-surface-strong/70 border border-surface-border rounded-xs">
-                  <h3 className="font-bold text-base text-ink-primary font-sans mb-1">
-                    {postmortemData.title}
-                  </h3>
-                  <p className="text-xs text-ink-secondary font-sans leading-relaxed">
-                    {postmortemData.executiveSummary}
-                  </p>
-                </div>
-
-                <div>
-                  <h4 className="font-mono-tech font-bold text-xs text-ink-primary mb-2">
-                    5-WHYS ROOT CAUSE ANALYSIS
-                  </h4>
-                  <p className="text-xs text-ink-secondary font-sans leading-relaxed bg-canvas p-3 border border-surface-border rounded-xs">
-                    {postmortemData.rootCauseAnalysis}
-                  </p>
-                </div>
-
-                <div>
-                  <h4 className="font-mono-tech font-bold text-xs text-ink-primary mb-2">
-                    PREVENTATIVE REMEDIATION TICKETS
-                  </h4>
-                  <div className="space-y-2">
-                    {postmortemData.preventativeItems?.map((item: any) => (
-                      <div
-                        key={item.ticketId}
-                        className="p-2.5 bg-canvas border border-surface-border rounded-xs flex items-center justify-between text-xs font-mono-tech"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <span className="px-1.5 py-0.5 bg-amber-light text-ink-primary font-bold rounded">
-                            {item.ticketId}
-                          </span>
-                          <span className="text-ink-secondary">{item.action}</span>
-                        </div>
-                        <span className="text-ink-tertiary text-[10px]">OWNER: {item.owner}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-surface-border flex justify-end">
-                  <a
-                    href={bundle.incident.postmortemUrl || '#'}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-4 py-2 bg-amber-accent hover:bg-amber-hover text-ink-primary text-xs font-mono-tech font-bold rounded-xs flex items-center space-x-2 shadow-pleurat-button"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download Presigned S3 Markdown ↗</span>
-                  </a>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {isPostmortemModalOpen && postmortemData && (
+        <PostmortemReportViewer
+          markdown={postmortemData.markdown || postmortemData.markdownReport || ''}
+          s3Key={postmortemData.s3Key}
+          s3Bucket={postmortemData.s3Bucket}
+          downloadUrl={postmortemData.downloadUrl || postmortemData.presignedUrl || bundle.incident.postmortemUrl}
+          incidentId={bundle.incident.incidentId}
+          onClose={() => setIsPostmortemModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

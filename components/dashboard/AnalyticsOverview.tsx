@@ -2,18 +2,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { Activity, ShieldCheck, Zap, Database, Cpu, HardDrive } from 'lucide-react';
+import { safeFetchJson } from '@/lib/api/safeFetch';
 
 export const AnalyticsOverview: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    fetch('/api/analytics')
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.success) setData(json.data);
+    safeFetchJson<any>('/api/analytics')
+      .then((res) => {
+        if (res.ok && res.data?.success) {
+          setData(res.data.data);
+        }
       })
-      .catch((err) => console.error('Analytics error:', err))
+      .catch((err) => console.warn('Analytics error:', err))
       .finally(() => setLoading(false));
   }, []);
 

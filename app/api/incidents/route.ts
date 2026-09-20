@@ -2,15 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getIncidentRepository } from '@/backend/repositories';
 import { CreateIncidentRequestSchema } from '@/lib/types/api';
 import { IncidentSeverity, IncidentStatus } from '@/lib/types/database';
-import { verifyAuthorization, AuthError } from '@/backend/domain/security/auth';
+import { verifyAuthorizationAsync, AuthError } from '@/backend/domain/security/auth';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    // Validate authorization if header provided
     try {
-      if (req.headers.get('authorization') || req.headers.get('x-sentinel-actor-role')) {
-        verifyAuthorization(req);
-      }
+      await verifyAuthorizationAsync(req);
     } catch (authErr: unknown) {
       if (authErr instanceof AuthError) {
         return NextResponse.json(
@@ -48,7 +47,7 @@ export async function POST(req: NextRequest) {
   try {
     let authContext;
     try {
-      authContext = verifyAuthorization(req);
+      authContext = await verifyAuthorizationAsync(req, ['INCIDENT_COMMANDER', 'ADMIN', 'RESPONDER']);
     } catch (authErr: unknown) {
       if (authErr instanceof AuthError) {
         return NextResponse.json(

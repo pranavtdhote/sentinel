@@ -2,24 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getIncidentRepository } from '@/backend/repositories';
 import { PatchIncidentRequestSchema } from '@/lib/types/api';
 import { validateStateTransition, InvalidStateTransitionError } from '@/backend/domain/stateMachine';
-import { verifyAuthorization, AuthError } from '@/backend/domain/security/auth';
+import { verifyAuthorizationAsync, AuthError } from '@/backend/domain/security/auth';
 import { IncidentRecord } from '@/lib/types/database';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    if (req.headers.get('authorization') || req.headers.get('x-sentinel-actor-role')) {
-      try {
-        verifyAuthorization(req);
-      } catch (authErr: unknown) {
-        if (authErr instanceof AuthError) {
-          return NextResponse.json(
-            { success: false, error: { code: authErr.code, message: authErr.message } },
-            { status: authErr.statusCode }
-          );
-        }
+    try {
+      await verifyAuthorizationAsync(req);
+    } catch (authErr: unknown) {
+      if (authErr instanceof AuthError) {
+        return NextResponse.json(
+          { success: false, error: { code: authErr.code, message: authErr.message } },
+          { status: authErr.statusCode }
+        );
       }
     }
 
@@ -55,7 +56,7 @@ export async function PATCH(
   try {
     let authContext;
     try {
-      authContext = verifyAuthorization(req);
+      authContext = await verifyAuthorizationAsync(req, ['INCIDENT_COMMANDER', 'ADMIN', 'RESPONDER']);
     } catch (authErr: unknown) {
       if (authErr instanceof AuthError) {
         return NextResponse.json(

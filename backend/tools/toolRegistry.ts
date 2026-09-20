@@ -230,7 +230,8 @@ export class ToolRegistry {
           }
 
           const reportS3Key = `postmortems/${params.incidentId}-retrospective.md`;
-          const reportUrl = `https://sentinel-reports-prod.s3.amazonaws.com/${reportS3Key}`;
+          const reportsBucket = process.env.S3_REPORTS_BUCKET || 'sentinel-reports-090686622776';
+          const reportUrl = `https://${reportsBucket}.s3.amazonaws.com/${reportS3Key}`;
           const updated = await repo.setResolution(
             params.incidentId,
             reportUrl,

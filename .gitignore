@@ -35,3 +35,7 @@ next-env.d.ts
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Deployment artifacts
+.amplify-hosting/
+*.zip

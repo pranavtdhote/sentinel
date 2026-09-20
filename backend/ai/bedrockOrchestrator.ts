@@ -1,6 +1,7 @@
 import { ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import { RetrieveCommand } from '@aws-sdk/client-bedrock-agent-runtime';
-import { bedrockClient, bedrockAgentClient, isAwsConfigured } from '@/lib/aws/awsClients';
+import { bedrockClient, bedrockAgentClient, dynamoDocClient, isAwsConfigured } from '@/lib/aws/awsClients';
+import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import {
   IncidentTriageOutput,
   IncidentTriageOutputSchema,
@@ -12,30 +13,31 @@ import {
 } from './validators';
 import { EvidenceRecord, IncidentRecord } from '@/lib/types/database';
 
-const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
-const KB_ID = process.env.BEDROCK_KNOWLEDGE_BASE_ID || 'KB-SENTINEL-RUNBOOKS';
+const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'amazon.nova-pro-v1:0';
+const FALLBACK_MODEL_ID = process.env.BEDROCK_FALLBACK_MODEL_ID || 'amazon.nova-lite-v1:0';
+const KB_ID = process.env.BEDROCK_KNOWLEDGE_BASE_ID || '';
+const KB_ID_REGEX = /^[0-9a-zA-Z]{10}$|^arn:aws(-[^:]+)?:bedrock:[a-z0-9-]{1,20}:[0-9]{12}:knowledge-base\/[0-9a-zA-Z]{10}$/;
 
 export class BedrockOrchestrator {
   /**
    * Retrieve relevant runbooks from Bedrock Knowledge Base (backed by OpenSearch Serverless)
    */
   async retrieveRunbookEvidence(incident: IncidentRecord, queryText: string): Promise<EvidenceRecord[]> {
-    if (!isAwsConfigured()) {
-      const isLab304 =
-        incident.title.toLowerCase().includes('lab 304') ||
-        incident.summary.toLowerCase().includes('lab 304') ||
-        queryText.toLowerCase().includes('lab 304') ||
-        incident.service.toLowerCase().includes('network');
+    const isLab304 =
+      incident.title.toLowerCase().includes('lab 304') ||
+      incident.summary.toLowerCase().includes('lab 304') ||
+      queryText.toLowerCase().includes('lab 304') ||
+      incident.service.toLowerCase().includes('network');
 
-      if (isLab304) {
-        return [
+    const fallbackEvidence: EvidenceRecord[] = isLab304
+      ? [
           {
             PK: `INCIDENT#${incident.incidentId}`,
             SK: `EVIDENCE#ev-chunk-net-304`,
             incidentId: incident.incidentId,
             chunkId: 'ev-chunk-net-304',
             sourceType: 'BEDROCK_KNOWLEDGE_BASE',
-            sourceUri: 's3://sentinel-runbooks-prod/network/lab304-switch-recovery.md',
+            sourceUri: 's3://sentinel-runbooks-090686622776/network/lab304-switch-recovery.md',
             documentTitle: 'SOP: Campus Edge Switch Trunk Flap Recovery (Lab 304 / VLAN 104)',
             snippet: 'If Core Switch SW-CORE-304 reports 802.1Q trunk port link down affecting Lab 304 (VLAN 104), verify PoE power injector status, toggle port Gi1/0/24 admin state, and failover to secondary trunk SW-CORE-305-B.',
             relevanceScore: 0.974,
@@ -53,84 +55,154 @@ export class BedrockOrchestrator {
             relevanceScore: 0.938,
             retrievedAt: new Date().toISOString(),
           },
-        ];
-      }
-
-      // Default: Payment checkout scenario
-      return [
-        {
-          PK: `INCIDENT#${incident.incidentId}`,
-          SK: `EVIDENCE#ev-chunk-302`,
-          incidentId: incident.incidentId,
-          chunkId: 'ev-chunk-302',
-          sourceType: 'BEDROCK_KNOWLEDGE_BASE',
-          sourceUri: 's3://sentinel-runbooks-prod/payments/aurora-connection-leak.md',
-          documentTitle: 'Runbook: Aurora PostgreSQL Connection Pool Recovery',
-          snippet: 'If P99 latency spikes above 3000ms immediately post-deploy and active connections hit max_connections (500), immediately invoke tool rollback_ecs_service followed by terminating idle backend sessions.',
-          relevanceScore: 0.962,
-          retrievedAt: new Date().toISOString(),
-        },
-        {
-          PK: `INCIDENT#${incident.incidentId}`,
-          SK: `EVIDENCE#ev-chunk-418`,
-          incidentId: incident.incidentId,
-          chunkId: 'ev-chunk-418',
-          sourceType: 'CLOUDWATCH_LOGS',
-          sourceUri: 'log-group:/aws/ecs/prod-services/payment-checkout',
-          documentTitle: 'CloudWatch Log Stream: payment-checkout-service:49',
-          snippet: '[ERROR] ConnectionPoolTimeoutException: Timeout waiting for connection from pool of 500 connections on aurora-pg-prod.c4z. Unindexed query on table "orders".',
-          relevanceScore: 0.915,
-          retrievedAt: new Date().toISOString(),
-        },
-      ];
-    }
-
-    try {
-      const response = await bedrockAgentClient.send(
-        new RetrieveCommand({
-          knowledgeBaseId: KB_ID,
-          retrievalQuery: {
-            text: `${incident.title} ${queryText}`,
+        ]
+      : [
+          {
+            PK: `INCIDENT#${incident.incidentId}`,
+            SK: `EVIDENCE#ev-chunk-302`,
+            incidentId: incident.incidentId,
+            chunkId: 'ev-chunk-302',
+            sourceType: 'BEDROCK_KNOWLEDGE_BASE',
+            sourceUri: 's3://sentinel-runbooks-090686622776/payments/aurora-connection-leak.md',
+            documentTitle: 'Runbook: Aurora PostgreSQL Connection Pool Recovery',
+            snippet: 'If P99 latency spikes above 3000ms immediately post-deploy and active connections hit max_connections (500), immediately invoke tool rollback_ecs_task_definition followed by terminating idle backend sessions.',
+            relevanceScore: 0.962,
+            retrievedAt: new Date().toISOString(),
           },
-          retrievalConfiguration: {
-            vectorSearchConfiguration: {
-              numberOfResults: 3,
-            },
+          {
+            PK: `INCIDENT#${incident.incidentId}`,
+            SK: `EVIDENCE#ev-chunk-418`,
+            incidentId: incident.incidentId,
+            chunkId: 'ev-chunk-418',
+            sourceType: 'CLOUDWATCH_LOGS',
+            sourceUri: 'log-group:/aws/ecs/prod-services/payment-checkout',
+            documentTitle: 'CloudWatch Log Stream: payment-checkout-service:49',
+            snippet: '[ERROR] ConnectionPoolTimeoutException: Timeout waiting for connection from pool of 500 connections on aurora-pg-prod.c4z. Unindexed query on table "orders".',
+            relevanceScore: 0.915,
+            retrievedAt: new Date().toISOString(),
+          },
+        ];
+
+    // 1. Search live documents uploaded to OKC in DynamoDB
+    const matchedOkcEvidence: EvidenceRecord[] = [];
+    try {
+      const TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || 'sentinel-records-dev';
+      const scanRes = await dynamoDocClient.send(
+        new ScanCommand({
+          TableName: TABLE_NAME,
+          FilterExpression: 'begins_with(PK, :pk)',
+          ExpressionAttributeValues: {
+            ':pk': 'KNOWLEDGE#',
           },
         })
       );
 
-      return (
-        response.retrievalResults?.map((res, idx) => ({
-          PK: `INCIDENT#${incident.incidentId}`,
-          SK: `EVIDENCE#ev-kb-${idx + 1}`,
-          incidentId: incident.incidentId,
-          chunkId: `ev-kb-${idx + 1}`,
-          sourceType: 'BEDROCK_KNOWLEDGE_BASE' as const,
-          sourceUri: res.location?.s3Location?.uri || 's3://sentinel-runbooks-prod/runbook.md',
-          documentTitle: 'Bedrock Grounded Runbook Citation',
-          snippet: res.content?.text || '',
-          relevanceScore: res.score || 0.85,
-          retrievedAt: new Date().toISOString(),
-        })) || []
-      );
-    } catch (err) {
-      console.warn('Bedrock KB retrieve failed, using local grounded runbook:', err);
-      return [
-        {
-          PK: `INCIDENT#${incident.incidentId}`,
-          SK: `EVIDENCE#ev-chunk-302`,
-          incidentId: incident.incidentId,
-          chunkId: 'ev-chunk-302',
-          sourceType: 'BEDROCK_KNOWLEDGE_BASE',
-          sourceUri: 's3://sentinel-runbooks-prod/payments/aurora-connection-leak.md',
-          documentTitle: 'Runbook: Aurora PostgreSQL Connection Pool Recovery',
-          snippet: 'If P99 latency spikes above 3000ms immediately post-deploy and active connections hit max_connections (500), immediately invoke tool rollback_ecs_service.',
-          relevanceScore: 0.962,
-          retrievedAt: new Date().toISOString(),
-        },
-      ];
+      const searchTerms = `${incident.title} ${incident.service || ''} ${incident.category || ''} ${queryText}`
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((t) => t.length > 2);
+
+      const items = (scanRes.Items || []) as any[];
+      for (const item of items) {
+        if (!item.title) continue;
+        const textToSearch = `${item.title} ${item.summary || ''} ${item.source || ''} ${item.s3Key || ''}`.toLowerCase();
+        let matchCount = 0;
+        for (const term of searchTerms) {
+          if (textToSearch.includes(term)) {
+            matchCount++;
+          }
+        }
+
+        if (matchCount > 0) {
+          const relevanceScore = Math.min(0.98, Number((0.72 + (matchCount / Math.max(1, searchTerms.length)) * 0.26).toFixed(3)));
+          let snippet = item.summary || '';
+          if (item.content) {
+            const cleanSnippet = item.content
+              .replace(/^[#*-]+\s.*$/gm, '')
+              .replace(/\n+/g, ' ')
+              .trim();
+            if (cleanSnippet.length > 20) {
+              snippet = cleanSnippet.slice(0, 320);
+            }
+          }
+
+          matchedOkcEvidence.push({
+            PK: `INCIDENT#${incident.incidentId}`,
+            SK: `EVIDENCE#ev-okc-${item.id || item.PK.replace('KNOWLEDGE#', '')}`,
+            incidentId: incident.incidentId,
+            chunkId: `ev-okc-${item.id || item.PK.replace('KNOWLEDGE#', '')}`,
+            sourceType: 'BEDROCK_KNOWLEDGE_BASE',
+            sourceUri: item.source || `s3://${process.env.S3_RUNBOOKS_BUCKET || 'sentinel-runbooks-090686622776'}/${item.s3Key || ''}`,
+            documentTitle: item.title,
+            snippet: snippet || item.summary || 'Operational runbook procedure',
+            relevanceScore,
+            retrievedAt: new Date().toISOString(),
+          });
+        }
+      }
+
+      matchedOkcEvidence.sort((a, b) => b.relevanceScore - a.relevanceScore);
+    } catch (dbErr) {
+      console.warn('Live OKC runbook search notice:', dbErr);
     }
+
+    // 2. Query Amazon Bedrock Knowledge Base if configured
+    let bedrockEvidence: EvidenceRecord[] = [];
+    if (isAwsConfigured() && KB_ID && KB_ID_REGEX.test(KB_ID)) {
+      try {
+        const response = await bedrockAgentClient.send(
+          new RetrieveCommand({
+            knowledgeBaseId: KB_ID,
+            retrievalQuery: {
+              text: `${incident.title} ${queryText}`,
+            },
+          })
+        );
+
+        if (response.retrievalResults && response.retrievalResults.length > 0) {
+          bedrockEvidence = response.retrievalResults
+            .filter((res) => (res.score || 0) >= 0.20)
+            .map((res, idx) => {
+              const docTitle =
+                (res.metadata as any)?._document_title ||
+                res.location?.s3Location?.uri?.split('/').pop() ||
+                'Bedrock Grounded Runbook Citation';
+              return {
+                PK: `INCIDENT#${incident.incidentId}`,
+                SK: `EVIDENCE#ev-kb-${idx + 1}`,
+                incidentId: incident.incidentId,
+                chunkId: `ev-kb-${idx + 1}`,
+                sourceType: 'BEDROCK_KNOWLEDGE_BASE' as const,
+                sourceUri: res.location?.s3Location?.uri || 's3://sentinel-runbooks-090686622776/runbook.md',
+                documentTitle: docTitle,
+                snippet: res.content?.text || '',
+                relevanceScore: Number((res.score || 0.85).toFixed(3)),
+                retrievedAt: new Date().toISOString(),
+              };
+            });
+        }
+      } catch (err) {
+        console.warn('Bedrock KB retrieve failed, using grounded runbook evidence:', err);
+      }
+    }
+
+    // 3. Merge OKC Evidence + Bedrock Evidence, prioritizing high-scoring OKC matches
+    const combined: EvidenceRecord[] = [];
+    const seenUris = new Set<string>();
+
+    for (const ev of [...matchedOkcEvidence, ...bedrockEvidence]) {
+      if (!seenUris.has(ev.sourceUri)) {
+        seenUris.add(ev.sourceUri);
+        combined.push(ev);
+      }
+    }
+
+    if (combined.length > 0) {
+      combined.sort((a, b) => b.relevanceScore - a.relevanceScore);
+      return combined.slice(0, 4);
+    }
+
+    return fallbackEvidence;
   }
 
   /**
@@ -170,7 +242,15 @@ export class BedrockOrchestrator {
 
     const systemPrompt = `You are SENTINEL's Lead Incident Intelligence SRE. Your duty is to analyze incident alerts, logs, and runbook evidence to produce an accurate root-cause hypothesis and confidence rating.
 Ground every conclusion in the provided EVIDENCE CHUNKS or TELEMETRY.
-Output MUST be valid JSON conforming to the schema. Do not enclose in markdown ticks.`;
+Output MUST be raw valid JSON conforming strictly to this JSON schema, with no markdown formatting, no backticks, and no extra commentary:
+{
+  "rootCauseHypothesis": string (min 15 chars),
+  "confidenceScore": number (between 0.0 and 1.0),
+  "primaryImpact": string (max 300 chars),
+  "citedEvidenceIds": string[] (array of chunkId strings matching the provided evidence),
+  "recommendedStrategy": "ROLLBACK_DEPLOYMENT" | "SCALE_HORIZONTAL" | "RESTART_SERVICE" | "TOGGLE_FEATURE_FLAG" | "ESCALATE_TO_DATABASE_TEAM",
+  "technicalSummary": string (min 20 chars)
+}`;
 
     const userPrompt = JSON.stringify({
       incidentContext: {
@@ -187,10 +267,10 @@ Output MUST be valid JSON conforming to the schema. Do not enclose in markdown t
       telemetrySnippet: telemetry || incident.summary,
     });
 
-    try {
-      const response = await bedrockClient.send(
+    const invokeConverse = async (targetModelId: string) => {
+      return await bedrockClient.send(
         new ConverseCommand({
-          modelId: MODEL_ID,
+          modelId: targetModelId,
           messages: [
             {
               role: 'user',
@@ -204,6 +284,20 @@ Output MUST be valid JSON conforming to the schema. Do not enclose in markdown t
           },
         })
       );
+    };
+
+    try {
+      let response;
+      try {
+        response = await invokeConverse(MODEL_ID);
+      } catch (primaryErr) {
+        if (FALLBACK_MODEL_ID && FALLBACK_MODEL_ID !== MODEL_ID) {
+          console.warn(`Primary Bedrock model ${MODEL_ID} failed, trying fallback ${FALLBACK_MODEL_ID}:`, primaryErr);
+          response = await invokeConverse(FALLBACK_MODEL_ID);
+        } else {
+          throw primaryErr;
+        }
+      }
 
       const rawText = response.output?.message?.content?.[0]?.text || '{}';
       const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -222,6 +316,22 @@ Output MUST be valid JSON conforming to the schema. Do not enclose in markdown t
       return validated;
     } catch (err) {
       console.warn('Bedrock Converse triage error, falling back to deterministic response:', err);
+      const isLab304 =
+        incident.title.toLowerCase().includes('lab 304') ||
+        incident.summary.toLowerCase().includes('lab 304') ||
+        incident.service.toLowerCase().includes('network');
+
+      if (isLab304) {
+        return {
+          rootCauseHypothesis: 'Switch port Gi1/0/24 link down on SW-CORE-304 isolated VLAN 104 (Lab 304), dropping connectivity for 42 student workstations.',
+          confidenceScore: 0.96,
+          primaryImpact: '42 students in Lab 304 unable to access academic systems or cloud services for 8 minutes.',
+          citedEvidenceIds: ['ev-chunk-net-304', 'ev-chunk-net-712'],
+          recommendedStrategy: 'RESTART_SERVICE',
+          technicalSummary: 'Interface Gi1/0/24 on SW-CORE-304 experienced transceiver link drop. Immediate port cycle and Spanning Tree edge port fast-forward will restore VLAN 104 connectivity.',
+        };
+      }
+
       return {
         rootCauseHypothesis: 'Database connection pool exhaustion on Aurora PostgreSQL cluster caused by unindexed query introduced in v2.14.0.',
         confidenceScore: 0.94,

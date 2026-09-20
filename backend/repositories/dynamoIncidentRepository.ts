@@ -4,6 +4,7 @@ import {
   QueryCommand,
   UpdateCommand,
   BatchWriteCommand,
+  ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { dynamoDocClient } from '@/lib/aws/awsClients';
 import {
@@ -17,6 +18,7 @@ import {
   IncidentSeverity,
 } from '@/lib/types/database';
 import { IIncidentRepository } from './types';
+import { getBaselineDemoIncidents, getBaselineDemoBundle } from './demoBaseline';
 
 const TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || 'sentinel-records-dev';
 
@@ -54,114 +56,143 @@ export class DynamoIncidentRepository implements IIncidentRepository {
   }
 
   async getIncident(incidentId: string): Promise<IncidentRecord | null> {
-    const result = await dynamoDocClient.send(
-      new GetCommand({
-        TableName: TABLE_NAME,
-        Key: {
-          PK: `INCIDENT#${incidentId}`,
-          SK: 'METADATA',
-        },
-      })
-    );
-    return (result.Item as IncidentRecord) || null;
+    try {
+      const result = await dynamoDocClient.send(
+        new GetCommand({
+          TableName: TABLE_NAME,
+          Key: {
+            PK: `INCIDENT#${incidentId}`,
+            SK: 'METADATA',
+          },
+        })
+      );
+      if (result.Item) {
+        return result.Item as IncidentRecord;
+      }
+    } catch {
+      // Fall through to check baseline demo data
+    }
+    return getBaselineDemoIncidents().find((i) => i.incidentId === incidentId) || null;
   }
 
   async getFullIncidentBundle(incidentId: string): Promise<FullIncidentBundle | null> {
-    const result = await dynamoDocClient.send(
-      new QueryCommand({
-        TableName: TABLE_NAME,
-        KeyConditionExpression: 'PK = :pk',
-        ExpressionAttributeValues: {
-          ':pk': `INCIDENT#${incidentId}`,
-        },
-      })
-    );
+    let resultItems: any[] = [];
+    try {
+      const result = await dynamoDocClient.send(
+        new QueryCommand({
+          TableName: TABLE_NAME,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: {
+            ':pk': `INCIDENT#${incidentId}`,
+          },
+        })
+      );
+      resultItems = result.Items || [];
+    } catch {
+      resultItems = [];
+    }
 
-    if (!result.Items || result.Items.length === 0) return null;
+    if (resultItems.length > 0) {
+      let incident: IncidentRecord | null = null;
+      const timeline: TimelineEventRecord[] = [];
+      const evidence: EvidenceRecord[] = [];
+      let activePlan: ActionPlanRecord | undefined = undefined;
+      const auditLogs: AuditRecord[] = [];
 
-    let incident: IncidentRecord | null = null;
-    const timeline: TimelineEventRecord[] = [];
-    const evidence: EvidenceRecord[] = [];
-    let activePlan: ActionPlanRecord | undefined = undefined;
-    const auditLogs: AuditRecord[] = [];
+      for (const item of resultItems) {
+        if (item.SK === 'METADATA') {
+          incident = item as IncidentRecord;
+        } else if (item.SK.startsWith('EVENT#')) {
+          timeline.push(item as TimelineEventRecord);
+        } else if (item.SK.startsWith('EVIDENCE#')) {
+          evidence.push(item as EvidenceRecord);
+        } else if (item.SK.startsWith('PLAN#')) {
+          activePlan = item as ActionPlanRecord;
+        } else if (item.SK.startsWith('AUDIT#')) {
+          auditLogs.push(item as AuditRecord);
+        }
+      }
 
-    for (const item of result.Items) {
-      if (item.SK === 'METADATA') {
-        incident = item as IncidentRecord;
-      } else if (item.SK.startsWith('EVENT#')) {
-        timeline.push(item as TimelineEventRecord);
-      } else if (item.SK.startsWith('EVIDENCE#')) {
-        evidence.push(item as EvidenceRecord);
-      } else if (item.SK.startsWith('PLAN#')) {
-        activePlan = item as ActionPlanRecord;
-      } else if (item.SK.startsWith('AUDIT#')) {
-        auditLogs.push(item as AuditRecord);
+      if (incident) {
+        // If baseline demo incident has missing evidence chunks in DynamoDB, enrich from baseline
+        if (evidence.length === 0) {
+          const fallback = getBaselineDemoBundle(incidentId);
+          if (fallback && fallback.evidence.length > 0) {
+            evidence.push(...fallback.evidence);
+          }
+        }
+
+        timeline.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        auditLogs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+        return {
+          incident,
+          timeline,
+          evidence,
+          activePlan,
+          auditLogs,
+        };
       }
     }
 
-    if (!incident) return null;
-
-    timeline.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-    auditLogs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-
-    return {
-      incident,
-      timeline,
-      evidence,
-      activePlan,
-      auditLogs,
-    };
+    // Fall back to pristine baseline demo bundle
+    return getBaselineDemoBundle(incidentId);
   }
 
   async listIncidents(filters?: { status?: IncidentStatus; severity?: IncidentSeverity; limit?: number }): Promise<IncidentRecord[]> {
-    const limit = filters?.limit || 20;
+    const limit = filters?.limit || 50;
+    let dbItems: IncidentRecord[] = [];
 
+    try {
+      const result = await dynamoDocClient.send(
+        new ScanCommand({
+          TableName: TABLE_NAME,
+          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
+          ExpressionAttributeValues: {
+            ':pk': 'INCIDENT#',
+            ':sk': 'METADATA',
+          },
+        })
+      );
+      dbItems = ((result.Items as IncidentRecord[]) || []).filter(
+        (item) => item && typeof item.incidentId === 'string' && item.incidentId.trim() !== ''
+      );
+    } catch (scanErr) {
+      console.warn('DynamoDB scan failed in listIncidents, using baseline fallback:', scanErr);
+    }
+
+    // Merge baseline demo incidents with live database items
+    const baseline = getBaselineDemoIncidents();
+    const itemMap = new Map<string, IncidentRecord>();
+
+    // Seed map with baseline demo incidents
+    for (const base of baseline) {
+      if (base && base.incidentId) {
+        itemMap.set(base.incidentId, base);
+      }
+    }
+
+    // Overlay real DynamoDB items (persisted user records + any modified demo records)
+    for (const item of dbItems) {
+      if (item && item.incidentId) {
+        itemMap.set(item.incidentId, item);
+      }
+    }
+
+    let combined = Array.from(itemMap.values());
+
+    // Apply filtering
     if (filters?.status) {
-      const result = await dynamoDocClient.send(
-        new QueryCommand({
-          TableName: TABLE_NAME,
-          IndexName: 'GSI1-StatusIndex',
-          KeyConditionExpression: 'GSI1PK = :spk',
-          ExpressionAttributeValues: {
-            ':spk': `STATUS#${filters.status}`,
-          },
-          ScanIndexForward: false,
-          Limit: limit,
-        })
-      );
-      return (result.Items as IncidentRecord[]) || [];
+      combined = combined.filter((i) => i.status === filters.status);
     }
-
     if (filters?.severity) {
-      const result = await dynamoDocClient.send(
-        new QueryCommand({
-          TableName: TABLE_NAME,
-          IndexName: 'GSI2-SeverityIndex',
-          KeyConditionExpression: 'GSI2PK = :vpk',
-          ExpressionAttributeValues: {
-            ':vpk': `SEV#${filters.severity}`,
-          },
-          ScanIndexForward: false,
-          Limit: limit,
-        })
-      );
-      return (result.Items as IncidentRecord[]) || [];
+      combined = combined.filter((i) => i.severity === filters.severity);
     }
 
-    // Default: query all incidents
-    const result = await dynamoDocClient.send(
-      new QueryCommand({
-        TableName: TABLE_NAME,
-        IndexName: 'GSI1-StatusIndex',
-        KeyConditionExpression: 'GSI1PK = :spk',
-        ExpressionAttributeValues: {
-          ':spk': 'STATUS#INVESTIGATING',
-        },
-        ScanIndexForward: false,
-        Limit: limit,
-      })
-    );
-    return (result.Items as IncidentRecord[]) || [];
+    // Sort newest first
+    combined.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+    return combined.slice(0, limit);
   }
 
   async updateIncidentStatus(incidentId: string, status: IncidentStatus, expectedVersion: number): Promise<IncidentRecord> {
@@ -207,13 +238,18 @@ export class DynamoIncidentRepository implements IIncidentRepository {
   }
 
   async saveEvidenceChunks(chunks: Omit<EvidenceRecord, 'PK' | 'SK'>[]): Promise<EvidenceRecord[]> {
-    const items: EvidenceRecord[] = chunks.map((c) => ({
-      ...c,
-      PK: `INCIDENT#${c.incidentId}`,
-      SK: `EVIDENCE#${c.chunkId}`,
-    }));
+    if (chunks.length === 0) return [];
 
-    if (items.length === 0) return [];
+    const uniqueMap = new Map<string, EvidenceRecord>();
+    for (const c of chunks) {
+      const item: EvidenceRecord = {
+        ...c,
+        PK: `INCIDENT#${c.incidentId}`,
+        SK: `EVIDENCE#${c.chunkId}`,
+      };
+      uniqueMap.set(`${item.PK}#${item.SK}`, item);
+    }
+    const items = Array.from(uniqueMap.values());
 
     await dynamoDocClient.send(
       new BatchWriteCommand({

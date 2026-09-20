@@ -3,6 +3,7 @@ import { getIncidentRepository } from '@/backend/repositories';
 import { ApproveActionRequestSchema } from '@/lib/types/api';
 import { ApprovalGate } from '@/backend/domain/security/approvalGate';
 import { ToolRunner } from '@/backend/tools/toolRunner';
+import { verifyAuthorizationAsync, AuthError } from '@/backend/domain/security/auth';
 import { UserRole } from '@/lib/types/database';
 
 export async function POST(
@@ -10,6 +11,18 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    let authContext;
+    try {
+      authContext = await verifyAuthorizationAsync(req, ['INCIDENT_COMMANDER', 'ADMIN']);
+    } catch (authErr: unknown) {
+      if (authErr instanceof AuthError) {
+        return NextResponse.json(
+          { success: false, error: { code: authErr.code, message: authErr.message } },
+          { status: authErr.statusCode }
+        );
+      }
+    }
+
     const { id } = await params;
     const repo = getIncidentRepository();
     const incident = await repo.getIncident(id);
@@ -24,8 +37,7 @@ export async function POST(
     const body = await req.json();
     const validated = ApproveActionRequestSchema.parse(body);
 
-    // Caller role verification from header or default to INCIDENT_COMMANDER for demo
-    const callerRole = (req.headers.get('x-sentinel-actor-role') || 'INCIDENT_COMMANDER') as UserRole;
+    const callerRole = (authContext?.role || 'INCIDENT_COMMANDER') as UserRole;
 
     // 1. Cryptographic HITL Verification Gate
     const gateCheck = ApprovalGate.verifyApproval(validated, callerRole);

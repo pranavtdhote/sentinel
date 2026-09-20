@@ -3,7 +3,7 @@ import { getIncidentRepository } from '@/backend/repositories';
 import { ApprovalGate } from '@/backend/domain/security/approvalGate';
 import { ToolRunner } from '@/backend/tools/toolRunner';
 import { validateStateTransition, InvalidStateTransitionError } from '@/backend/domain/stateMachine';
-import { verifyAuthorization, AuthError } from '@/backend/domain/security/auth';
+import { verifyAuthorizationAsync, AuthError } from '@/backend/domain/security/auth';
 import { UserRole } from '@/lib/types/database';
 
 export async function POST(
@@ -16,7 +16,7 @@ export async function POST(
     // 1. Require authorization (INCIDENT_COMMANDER or ADMIN required to approve actions)
     let authContext;
     try {
-      authContext = verifyAuthorization(req, ['INCIDENT_COMMANDER', 'ADMIN']);
+      authContext = await verifyAuthorizationAsync(req, ['INCIDENT_COMMANDER', 'ADMIN']);
     } catch (authErr: unknown) {
       if (authErr instanceof AuthError) {
         return NextResponse.json(

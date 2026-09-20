@@ -23,7 +23,20 @@ export const PriorityIncidentQueue: React.FC<PriorityIncidentQueueProps> = ({
   // Filter and sort incidents by priority
   const severityWeight: Record<string, number> = { SEV1: 4, SEV2: 3, SEV3: 2, SEV4: 1 };
 
-  const filtered = incidents
+  // Defensive deduplication: ensure non-empty unique incidentId
+  const seenIds = new Set<string>();
+  const validIncidents = (incidents || []).filter((inc) => {
+    if (!inc || !inc.incidentId || typeof inc.incidentId !== 'string' || inc.incidentId.trim() === '') {
+      return false;
+    }
+    if (seenIds.has(inc.incidentId)) {
+      return false;
+    }
+    seenIds.add(inc.incidentId);
+    return true;
+  });
+
+  const filtered = validIncidents
     .filter((inc) => {
       const matchesSev = severityFilter === 'ALL' || inc.severity === severityFilter;
       const matchesStatus =
@@ -105,7 +118,7 @@ export const PriorityIncidentQueue: React.FC<PriorityIncidentQueueProps> = ({
             const isSelected = selectedIncidentId === inc.incidentId;
             return (
               <div
-                key={inc.incidentId}
+                key={inc.incidentId || `queue-inc-${index}`}
                 onClick={() => onSelectIncident(inc.incidentId)}
                 className={`p-4 cursor-pointer transition-editorial flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                   isSelected

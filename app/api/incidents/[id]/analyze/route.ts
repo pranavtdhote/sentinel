@@ -3,7 +3,7 @@ import { getIncidentRepository } from '@/backend/repositories';
 import { IncidentAnalyzer } from '@/backend/ai/incidentAnalyzer';
 import { AnalyzeIncidentRequestSchema } from '@/lib/types/api';
 import { validateStateTransition, InvalidStateTransitionError } from '@/backend/domain/stateMachine';
-import { verifyAuthorization, AuthError } from '@/backend/domain/security/auth';
+import { verifyAuthorizationAsync, AuthError } from '@/backend/domain/security/auth';
 import { AIServiceError } from '@/backend/ai/aiServiceError';
 
 export async function POST(
@@ -13,7 +13,7 @@ export async function POST(
   try {
     let authContext;
     try {
-      authContext = verifyAuthorization(req);
+      authContext = await verifyAuthorizationAsync(req, ['INCIDENT_COMMANDER', 'ADMIN', 'RESPONDER']);
     } catch (authErr: unknown) {
       if (authErr instanceof AuthError) {
         return NextResponse.json(

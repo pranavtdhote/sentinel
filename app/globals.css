@@ -1,19 +1,20 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
 :root {
-  --canvas: #fbf7e6;
-  --text-primary: #16140e;
-  --text-secondary: #57534a;
-  --text-tertiary: #8b8577;
-  --surface-raised: #f3b44a;
-  --surface-strong: #efe9d2;
-  --surface-subtle: #f4eedb;
-  --border-subtle: rgba(22, 20, 14, 0.12);
-  --border-strong: rgba(22, 20, 14, 0.25);
+  --canvas: #F7F5EF;
+  --text-primary: #171713;
+  --text-secondary: #57534A;
+  --text-tertiary: #9B968B;
+  --text-muted: #77736A;
+  --surface-raised: #D99A32;
+  --surface-strong: #EFECE3;
+  --surface-subtle: #F4F1E8;
+  --border-subtle: #DED9CE;
+  --border-strong: #C8C2B3;
 }
 
 html {

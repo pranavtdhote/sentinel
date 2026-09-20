@@ -15,7 +15,7 @@ export class BedrockClient {
 
   constructor() {
     this.defaultModelId =
-      process.env.BEDROCK_MODEL_ID || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
+      process.env.BEDROCK_MODEL_ID || 'amazon.nova-pro-v1:0';
   }
 
   public getModelId(override?: string): string {
