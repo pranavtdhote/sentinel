@@ -1,0 +1,12 @@
+[
+  {
+    "source": "/api/<*>",
+    "target": "http://ec2-3-236-153-112.compute-1.amazonaws.com/api/<*>",
+    "status": "200"
+  },
+  {
+    "source": "</^[^.]+$|\\.(?!(css|gif|ico|jpg|js|png|txt|svg|woff|woff2|ttf|map|json|webp|rsc)$)([^.]+$)/>",
+    "target": "/index.html",
+    "status": "200"
+  }
+]

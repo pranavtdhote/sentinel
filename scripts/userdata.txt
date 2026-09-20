@@ -1,0 +1,147 @@
+#!/bin/bash
+exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+set -ex
+
+# Configure 4GB Swap Space for build stability
+fallocate -l 4G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+
+echo "Starting Sentinel System Setup..."
+
+# Update OS and install prerequisites
+dnf update -y
+dnf install -y git nginx
+
+# Install Node.js 20 LTS via nodesource
+curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+dnf install -y nodejs
+
+echo "Node version: $(node -v)"
+echo "NPM version: $(npm -v)"
+
+# Setup application directory
+mkdir -p /opt/sentinel
+cd /opt/sentinel
+
+# Clone repo
+git clone https://github.com/pranavtdhote/sentinel.git .
+
+# Configure production environment variables
+cat << 'ENVEOF' > .env.local
+STAGE=dev
+BEDROCK_MODEL_ID=amazon.nova-pro-v1:0
+BEDROCK_FALLBACK_MODEL_ID=amazon.nova-lite-v1:0
+BEDROCK_KNOWLEDGE_BASE_ID=DJ3IJQZDGJ
+BEDROCK_DATA_SOURCE_ID=98PFX1H0BY
+DYNAMODB_TABLE_NAME=sentinel-records-dev
+S3_RUNBOOKS_BUCKET=sentinel-runbooks-090686622776
+S3_REPORTS_BUCKET=sentinel-reports-090686622776
+EVENTBRIDGE_BUS_NAME=sentinel-events-dev
+SNS_ALERT_TOPIC_ARN=arn:aws:sns:us-east-1:090686622776:sentinel-oncall-alerts-dev
+SNS_ALERTS_TOPIC_ARN=arn:aws:sns:us-east-1:090686622776:sentinel-oncall-alerts-dev
+ENABLE_MOCK_FALLBACK=false
+COGNITO_USER_POOL_ID=us-east-1_Lz4flXPaw
+COGNITO_CLIENT_ID=15qk2aht7ivv8d4s676s18ieu0
+COGNITO_ISSUER=https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Lz4flXPaw
+NODE_ENV=production
+PORT=3000
+AWS_REGION=us-east-1
+ENVEOF
+
+# Install dependencies and build
+npm ci
+export NODE_OPTIONS="--max-old-space-size=2048"
+npm run build
+
+# Create systemd service
+cat << 'SVCEOF' > /etc/systemd/system/sentinel.service
+[Unit]
+Description=Sentinel Incident Intelligence Platform
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/sentinel
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=AWS_REGION=us-east-1
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+# Enable and start Sentinel
+systemctl daemon-reload
+systemctl enable sentinel
+systemctl start sentinel
+
+# Configure Nginx reverse proxy
+cat << 'NGXEOF' > /etc/nginx/nginx.conf
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log notice;
+pid /run/nginx.pid;
+
+include /usr/share/nginx/modules/*.conf;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  /var/log/nginx/access.log  main;
+
+    sendfile            on;
+    tcp_nopush          on;
+    keepalive_timeout   65;
+    types_hash_max_size 4096;
+
+    include             /etc/nginx/mime.types;
+    default_type        application/octet-stream;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+
+    server {
+        listen       80 default_server;
+        listen       [::]:80 default_server;
+        server_name  _;
+
+        location /_next/static/ {
+            alias /opt/sentinel/.next/static/;
+            expires 365d;
+            access_log off;
+        }
+
+        location / {
+            proxy_pass http://127.0.0.1:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 120s;
+        }
+    }
+}
+NGXEOF
+
+# Test and start Nginx
+nginx -t
+systemctl enable nginx
+systemctl restart nginx
+
+echo "Sentinel deployment complete!"
