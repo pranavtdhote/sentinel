@@ -139,9 +139,8 @@ All untrusted user inputs and retrieved RAG context are encapsulated in strict X
 - **Stale Approval Detection**: Approvals are bound to `incidentId` and `incidentVersion`. If the incident state advances, the approval is rejected with `409 Conflict`.
 - **Zero Secrets Committed**: Plaintext credentials are strictly excluded. Uses IAM Task Roles and environment variable schemas via Zod.
 - **Security Documentation**:
-  - [`SECURITY.md`](./SECURITY.md): Comprehensive AWS security audit.
+  - [`SECURITY.md`](./SECURITY.md): Comprehensive AWS security audit and IAM least-privilege architecture.
   - [`THREAT_MODEL.md`](./THREAT_MODEL.md): STRIDE and DREAD threat models covering all 9 threat vectors.
-  - [`IAM_NOTES.md`](./IAM_NOTES.md): Production least-privilege IAM policies.
 
 ---
 
@@ -193,12 +192,11 @@ Refer to [`DEPLOYMENT.md`](./DEPLOYMENT.md) for complete step-by-step production
 
 ## 11. Deterministic 3-Minute Demo
 
-Sentinel is pre-configured for a deterministic 3-minute hackathon presentation:
+Sentinel is pre-configured for a deterministic 3-minute operational presentation:
 
 - **Demo Scenario**: *"Lab 304 has lost network connectivity. 42 students cannot access their systems. The issue started 8 minutes ago."*
 - **Quick Fill**: Open the Incident Ingest modal and click **⚡ Load Hackathon Demo Incident**.
 - **Reset Demo**: Click **RESET DEMO** in the top navigation bar or under `/settings` to restore the platform to clean baseline at any time.
-- **Demo Narration Script**: Refer to [`DEMO_SCRIPT.md`](./DEMO_SCRIPT.md) for second-by-second presentation timing.
 
 ---
 

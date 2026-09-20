@@ -45,7 +45,7 @@ Sentinel enforces the Principle of Least Privilege across all runtime resources.
    - S3 read access to vector document source buckets.
    - OpenSearch Serverless `aoss:APIAccessAll` permissions.
 
-Refer to [`IAM_NOTES.md`](./IAM_NOTES.md) for complete, copy-pasteable JSON IAM policy documents.
+Refer to [`SECURITY.md`](./SECURITY.md) and [`docs/AWS_RESOURCES.md`](./docs/AWS_RESOURCES.md) for detailed policy architectures.
 
 ---
 
